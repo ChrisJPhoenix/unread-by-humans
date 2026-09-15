@@ -1,0 +1,52 @@
+# Only deterministic cases are asserted here. Cases that require a live
+# listener (port_in_use returning true, listener_pid returning a real PID)
+# need a fixture the harness cannot set up, so they are omitted.
+#
+# port_in_use now sets SO_REUSEADDR on the probe socket (matching Werkzeug's
+# allow_reuse_address=True). This means TIME_WAIT sockets from killed SSE
+# connections are no longer misreported as a busy port; only a genuine
+# LISTENer still yields EADDRINUSE. The free-port case below (49231 → false)
+# remains valid; the live-listener case remains untestable here.
+
+call: dev_serve.busy_message
+arg port = 5050
+arg pid = 1234
+expect return = "Port 5050 is already in use by PID 1234.\nStop it with:  kill 1234\nThen start this server again."
+
+call: dev_serve.busy_message
+arg port = 5050
+arg pid = null
+expect return = "Port 5050 is already in use, but the PID could not be identified.\nFind it with:  ss -ltnp | grep :5050"
+
+call: dev_serve.listener_pid
+arg port = 49231
+expect return = null
+
+call: dev_serve.port_in_use
+arg host = "127.0.0.1"
+arg port = 49231
+expect return = false
+
+# should_handoff_to_supervisor: neither env var set → hand off
+call: dev_serve.should_handoff_to_supervisor
+arg is_supervised = false
+arg no_supervisor_optout = false
+expect return = true
+
+# should_handoff_to_supervisor: SUPERVISED set → no hand off
+call: dev_serve.should_handoff_to_supervisor
+arg is_supervised = true
+arg no_supervisor_optout = false
+expect return = false
+
+# should_handoff_to_supervisor: NO_SUPERVISOR set → no hand off
+call: dev_serve.should_handoff_to_supervisor
+arg is_supervised = false
+arg no_supervisor_optout = true
+expect return = false
+
+# should_handoff_to_supervisor: both env vars set → no hand off
+call: dev_serve.should_handoff_to_supervisor
+arg is_supervised = true
+arg no_supervisor_optout = true
+expect return = false

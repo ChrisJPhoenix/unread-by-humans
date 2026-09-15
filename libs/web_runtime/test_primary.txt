@@ -1,0 +1,40 @@
+# web_runtime: path-traversal guard primary plan.
+# realpath normalizes lexically even for a non-existent root, so the
+# literal-root cases below need no on-disk fixture. The symlink-escape
+# case at the end uses a committed fixture (test_fixtures/root/escape/token-cache.json,
+# a symlink that points outside the project root).
+
+# Legitimate nested relative path resolves under the root.
+call: web_runtime.resolve_in_root
+arg root = "/srv/app"
+arg rel = "a/b/c.json"
+expect return = "/srv/app/a/b/c.json"
+
+# A `..` that stays inside the root resolves correctly.
+call: web_runtime.resolve_in_root
+arg root = "/srv/app"
+arg rel = "a/../b"
+expect return = "/srv/app/b"
+
+# A `..` that escapes the root is rejected.
+call: web_runtime.resolve_in_root
+arg root = "/srv/app"
+arg rel = "../etc/passwd"
+expect raises = "PathTraversalError"
+
+# An absolute rel path is rejected.
+call: web_runtime.resolve_in_root
+arg root = "/srv/app"
+arg rel = "/etc/passwd"
+expect raises = "PathTraversalError"
+
+# A symlink that escapes the root is rejected (realpath follows the link).
+# fixture_symlink_root() returns the committed test_fixtures/root dir, which
+# contains `escape/token-cache.json`, a symlink whose target lies outside the root.
+call: web_runtime.fixture_symlink_root
+save as: sym_root
+
+call: web_runtime.resolve_in_root
+arg root = $sym_root
+arg rel = "escape/token-cache.json"
+expect raises = "PathTraversalError"

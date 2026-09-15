@@ -1,0 +1,79 @@
+# error_report: primary plan.
+# All stanzas use report_from_parts with an explicit `time` so the
+# saved report is fully deterministic.
+
+# Build a base report from string parts and save it.
+call: error_report.report_from_parts
+arg type_name = "ValueError"
+arg message = "something went wrong"
+arg stack = "file.py:42\nother.py:7"
+arg path = "/api/submit"
+arg time = "2026-01-01T00:00:00Z"
+save as: rpt
+
+# format_report must contain the message text.
+call: error_report.format_report
+arg report = $rpt
+expect contains = "something went wrong"
+
+# format_report must wrap output in triple-backtick fences.
+call: error_report.format_report
+arg report = $rpt
+expect contains = "```"
+
+# storm_key for the saved report equals type + stack lines joined by |.
+call: error_report.storm_key
+arg report = $rpt
+expect return = "ValueError|file.py:42|other.py:7"
+
+# A second report with the SAME type+stack but a DIFFERENT message must
+# produce the identical storm_key (message is not part of the key).
+call: error_report.report_from_parts
+arg type_name = "ValueError"
+arg message = "completely different message"
+arg stack = "file.py:42\nother.py:7"
+arg time = "2026-01-01T00:00:00Z"
+save as: rpt2
+
+call: error_report.storm_key
+arg report = $rpt2
+expect return = "ValueError|file.py:42|other.py:7"
+
+# should_emit: new key, low count → True.
+# seen_keys is a comma-separated string; empty string means the empty set.
+call: error_report.should_emit
+arg key = "ValueError|file.py:42|other.py:7"
+arg seen_keys = ""
+arg distinct_count = 0
+expect return = true
+
+# should_emit: duplicate key (key in seen_keys) → False.
+call: error_report.should_emit
+arg key = "ValueError|file.py:42|other.py:7"
+arg seen_keys = "ValueError|file.py:42|other.py:7"
+arg distinct_count = 1
+expect return = false
+
+# should_emit: storm cap reached (distinct_count >= cap) → False.
+call: error_report.should_emit
+arg key = "KeyError|other.py:99"
+arg seen_keys = ""
+arg distinct_count = 10
+arg cap = 10
+expect return = false
+
+# crash_envelope wraps the report under the __crash__ key.
+call: error_report.crash_envelope
+arg report = $rpt
+save as: envelope
+
+# unwrap_envelope extracts the inner report from the envelope.
+call: error_report.unwrap_envelope
+arg envelope = $envelope
+save as: inner
+
+# format_report on the unwrapped inner report still contains the message
+# (confirms __crash__ carried the full report through the round-trip).
+call: error_report.format_report
+arg report = $inner
+expect contains = "something went wrong"

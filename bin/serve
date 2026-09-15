@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(dirname "$SCRIPT_DIR")"
+
+FLAG="$ROOT/tmp/serve/restart"
+mkdir -p "$ROOT/tmp/serve"
+rm -f "$FLAG"
+
+# A crash within FAST_FAIL_SECS of launch counts as a fast fail.
+# MAX_FAST_FAILS consecutive fast fails cause the supervisor to abort.
+FAST_FAIL_SECS=3
+MAX_FAST_FAILS=5
+
+CHILD=""
+CHILD_STARTED=0
+fast_fails=0
+
+start_child() {
+  MOVIE_SERVE_SUPERVISED=1 "$ROOT/venv/bin/python3" "$ROOT/web/server.py" --force &
+  CHILD=$!
+  CHILD_STARTED=$SECONDS
+  echo "serve: started server (pid $CHILD) on http://127.0.0.1:5050"
+}
+
+stop_child() {
+  if kill -0 "$CHILD" 2>/dev/null; then
+    kill -TERM "$CHILD"
+    for i in $(seq 1 50); do
+      kill -0 "$CHILD" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$CHILD" 2>/dev/null; then
+      kill -KILL "$CHILD" 2>/dev/null || true
+    fi
+  fi
+  wait "$CHILD" 2>/dev/null || true
+}
+
+trap 'stop_child; exit 0' INT TERM
+
+start_child
+
+while true; do
+  sleep 1
+  if [ -e "$FLAG" ]; then
+    rm -f "$FLAG"
+    echo "serve: restart requested — restarting server"
+    stop_child
+    start_child
+    fast_fails=0
+  elif ! kill -0 "$CHILD" 2>/dev/null; then
+    elapsed=$(( SECONDS - CHILD_STARTED ))
+    if [ "$elapsed" -lt "$FAST_FAIL_SECS" ]; then
+      fast_fails=$(( fast_fails + 1 ))
+    else
+      fast_fails=0
+    fi
+    if [ "$fast_fails" -ge "$MAX_FAST_FAILS" ]; then
+      echo "serve: server keeps failing to start (port 5050 still unavailable after $MAX_FAST_FAILS quick retries). Find the squatter with:  ss -ltnp | grep :5050   (or: pkill -f web/server.py), then re-run bin/serve." >&2
+      exit 1
+    fi
+    echo "serve: server exited — restarting"
+    sleep 1
+    start_child
+  fi
+done
