@@ -5,16 +5,16 @@
 
 ## The protocol
 
-- A human and a model have a **concept conversation**.
-- A model writes the **design docs** from that conversation.
-- A model decomposes a design into **work-plan steps**.
+- A human and a model have **concept conversations**.
+- A model writes the **design docs** from those conversations.
+- A model decomposes a design into **work-plan steps** which include tests.
 - A model executes one fully-specified step; every step is gated by `./bin/green` —
   the test suite, not a human's reading.
 - **No human reads the design docs, the plans, or the code.** The human reads the
   conversation, the gate output, and the running app.
 
-What the human *does* do is the part that is easy to understate: he steers in
-conversation, makes the scope and priority calls, runs the thing, and owns the
+What the human *does* do is the part that is easy to understate: they steer in
+conversation, make the scope and priority calls, run the thing, and own the
 gates. A design doc in this repository containing a
 line like "decision with Chris, 2026-07-16" is not evidence of a human having read
 that doc — it is the model recording, in the artifact, a decision that was made in
@@ -124,16 +124,52 @@ and documented — see `design/music-web.md`.
   replacement DSL) so an agent's read access can be allowlisted as one command
   instead of an open-ended shell.
 - **Lineage.** This web app is a Claude-authored port of an earlier tkinter
-  desktop app. The tkinter code itself is not in this repository, but its
+  desktop app which was also produced by this process.
+  The tkinter code itself is not in this repository, but its
   design doc is (`design/music_app.md`), and the score-text libraries
   (`libs/music_parser`, `libs/pitch`) are shared by both.
 
 ## 4. Provenance
 
 This repository was carved out of a larger private monorepo. The music web app
-and the dev test harness that gates it are complete and green here. Left
+and the dev test harness that gates it are complete and green here [not tested
+yet - CJP]. Left
 behind, deliberately: the tkinter desktop front-end this app was ported from,
-the multi-agent orchestration machinery that drove the plan-and-dispatch loop
-described above, and eleven other apps that lived in the same monorepo. The git
+and other code that lived in the same monorepo. The git
 history in this repository starts at the carve-out — it is not the history of
 the original work.
+
+## 5. Chris's thoughts
+
+The above text was written by LLM and lightly edited. This section is by the
+human.
+
+I started this project with several goals:
+ - Explore the limits of human-out-of-the-loop code production
+ - Develop a fast, low-effort, and reasonably inexpensive pipeline for making my own apps
+ - Develop a music-and-animation suite from the ground up (very much still in progress)
+
+The project grew: I have several general-purpose design concepts and data structures, and I'm working on my own app to replace Claude Code with a web app using the Anthropic SDK. I expect that app to support the above workflow, orchestrating the LLM through the steps via a utility model rather than a conversational model.
+
+I'm not trying to make commercial-quality code. There's no security or login on the design system or apps, no i18n or a11y, etc., etc. My goal is a system that lets me (and maybe eventually anyone who can think clearly about what they want) develop their own personal alternatives to commercial apps, even large and special-purpose apps.
+
+My Claude Code is fairly chatty; it will talk through its decisions and ask me on judgment calls. I do engage with that text. If it says something that's inconsistent with my mental picture of how the design works, I'll follow up on that conversationally (still not reading the design artifacts directly).
+
+I'm using Claude because I like talking with it and I trust its engineering (which is not to say I trust its outputs!) For now I'm not interested in integrating other LLMs.
+
+The final success criteria:
+ - Do I get apps that I enjoy using and do everything I want?
+ - Is the app creation process reasonably inexpensive in dollars, calendar time, and human babysitting?
+ - Can I stay entirely at the UX-and-architecture conversational level, never looking at the artifacts?
+
+Lessons learned:
+ - The design docs have evolved to be more and more chatty and history-rich. I'll need to prompt it to keep them lean and present-tense.
+ - I can ask for features like libraries implementing arcane math (not in this repo yet) and get them coded even if I couldn't code them myself. (FWIW I asked Claude how maintainable they were; it said they were well-structured but would need a human or LLM math expert.)
+ - Some bugs can last a surprising length of time before I or Claude discovers them.
+ - I'm still working on how to decompose large apps, moving toward adding more layers: concept -> architecture -> design -> plans -> code, where architecture is a new layer of artifacts (which I won't look at).
+ - I've tried having design/concept conversations with Sonnet, and it's just not smart enough to grasp the shape of what I want. Opus works great for that. I haven't experimented much with Fable; the few times I've used it, it's seemed very "thoughtful" but kind of runs ahead rather than collaborating with me to create the app and architecture I want.
+
+Prior experience:
+ - I generated several thousand lines of code with Gemini while at Google.
+ - I used the DreamHost AI to generate a somewhat complicated website (https://codesmusic.com/) - it doesn't even give access to the artifacts. (My kid wanted to put his own music (note-by-note) into Minecraft resource/data packs.)
+ - I'm a software engineer with decades of experience; I have a feel for elegant architectures and data handling that probably informs what I ask for and how I specify it.
