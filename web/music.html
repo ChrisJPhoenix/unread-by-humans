@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Music</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #1a1a1a;
+  color: #d0d0d0;
+  font-family: monospace;
+  font-size: 12px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────────── */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #2c2c2c;
+  border-bottom: 1px solid #444;
+  flex-shrink: 0;
+}
+
+#toolbar h1 {
+  font-size: 13px;
+  color: #f0f0f0;
+  font-weight: bold;
+  margin-right: 8px;
+}
+
+.toolbar-btn {
+  padding: 4px 10px;
+  background: #3a3a3a;
+  color: #e0e0e0;
+  border: 1px solid #666;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+.toolbar-btn:hover {
+  background: #505050;
+  color: #ffffff;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: #555;
+  margin: 0 4px;
+}
+
+#score-select {
+  padding: 4px 8px;
+  background: #3a3a3a;
+  color: #e0e0e0;
+  border: 1px solid #666;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+#save-indicator {
+  color: #888;
+  font-size: 11px;
+}
+
+#status-bar {
+  margin-left: auto;
+  color: #aaaaaa;
+  font-size: 11px;
+  min-width: 120px;
+  text-align: right;
+}
+
+/* ── Main layout: editor + docked instruments panel ─────────────────── */
+#main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Score editor area */
+#editor-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#score-textarea {
+  flex: 1;
+  resize: none;
+  background: #111111;
+  color: #e8e8e8;
+  border: none;
+  border-bottom: 1px solid #444;
+  padding: 8px;
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+}
+#score-textarea::placeholder {
+  color: #666;
+}
+
+/* Parse result strip */
+#parse-result {
+  padding: 4px 10px;
+  background: #232323;
+  color: #c0c0c0;
+  font-size: 11px;
+  min-height: 24px;
+  border-bottom: 1px solid #444;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+/* ── Instruments docked panel ────────────────────────────────────────── */
+#instruments-panel {
+  background: #252525;
+  border-top: 2px solid #555;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  max-height: 40vh;
+}
+
+#instruments-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: #2c2c2c;
+  border-bottom: 1px solid #444;
+  user-select: none;
+}
+
+#instruments-header span {
+  font-weight: bold;
+  color: #e0e0e0;
+  font-size: 12px;
+}
+
+.inst-add-btn {
+  padding: 2px 8px;
+  background: #3a5a3a;
+  color: #b0e0b0;
+  border: 1px solid #5a8a5a;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+.inst-add-btn:hover {
+  background: #4a7a4a;
+  color: #d0f0d0;
+}
+
+.inst-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0;
+}
+
+/* ── Instrument row ──────────────────────────────────────────────────── */
+.inst-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid #333;
+}
+.inst-row:hover {
+  background: #2e2e2e;
+}
+
+.inst-name {
+  background: #1a1a1a;
+  color: #e0e0e0;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 2px 5px;
+  font-family: monospace;
+  font-size: 11px;
+  width: 80px;
+}
+.inst-name::placeholder {
+  color: #666;
+}
+
+.inst-label {
+  color: #b8d4ff;
+  font-size: 11px;
+  min-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inst-pick-btn {
+  padding: 2px 6px;
+  background: #3a3a5a;
+  color: #c8c8ff;
+  border: 1px solid #5a5a8a;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+.inst-pick-btn:hover {
+  background: #4a4a7a;
+  color: #e0e0ff;
+}
+
+.inst-row label {
+  color: #aaaaaa;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.inst-slider {
+  width: 70px;
+  accent-color: #4488cc;
+}
+
+.inst-remove-btn {
+  padding: 2px 6px;
+  background: #5a2a2a;
+  color: #ffaaaa;
+  border: 1px solid #8a4a4a;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+.inst-remove-btn:hover {
+  background: #7a3a3a;
+  color: #ffcccc;
+}
+
+/* ── Picker modals ───────────────────────────────────────────────────── */
+.picker-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #222222;
+  border: 1px solid #666;
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+  overflow: hidden;
+}
+
+.picker-modal-perc {
+  left: 65%;
+}
+
+.picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #2c2c2c;
+  border-bottom: 1px solid #555;
+  color: #e8e8e8;
+  font-size: 12px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.picker-close {
+  background: none;
+  border: none;
+  color: #aaaaaa;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+.picker-close:hover {
+  color: #ffffff;
+}
+
+/* GM melodic grid: 16 rows × 8 cols */
+.gm-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+  min-width: 580px;
+}
+
+.gm-cell {
+  padding: 4px 2px;
+  background: #2a2a3a;
+  color: #c8c8ff;
+  border: 1px solid #444466;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+}
+.gm-cell:hover {
+  background: #3a3a5a;
+  color: #e0e0ff;
+}
+.gm-cell-selected {
+  background: #1a4a8a;
+  color: #ffffff;
+  border-color: #4488dd;
+}
+
+/* Percussion kits row (row 17 of the melodic grid modal) */
+.gm-perc-row {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 4px 8px 8px;
+  flex-shrink: 0;
+  border-top: 1px solid #444;
+}
+
+.gm-perc-cell {
+  padding: 4px 2px;
+  background: #3a2a2a;
+  color: #ffbbbb;
+  border: 1px solid #664444;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 10px;
+  cursor: pointer;
+  text-align: center;
+}
+.gm-perc-cell:hover {
+  background: #5a3a3a;
+  color: #ffdddd;
+}
+
+/* Percussion sub-grid: 7×7 */
+.perc-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 8px;
+  min-width: 320px;
+  overflow-y: auto;
+}
+
+.perc-cell {
+  padding: 4px 2px;
+  background: #2a2a2a;
+  color: #ffccaa;
+  border: 1px solid #664433;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 10px;
+  cursor: pointer;
+  text-align: center;
+}
+.perc-cell:hover {
+  background: #3a3a2a;
+  color: #ffe0bb;
+}
+.perc-cell-blank {
+  background: #1a1a1a;
+  border-color: #333;
+  cursor: default;
+}
+
+/* ── Instrument editor modal ─────────────────────────────────────────── */
+.inst-editor-modal {
+  min-width: 620px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Rows inside the editor */
+.editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+/* Per-note and channel-basics rows use same layout */
+.editor-per-note-row,
+.editor-channel-row {
+  background: #222;
+}
+
+/* A labeled field group (text or slider) */
+.editor-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 60px;
+}
+
+.editor-field-group span {
+  color: #aaaaaa;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* Text inputs inside the editor */
+.editor-text-input {
+  background: #1a1a1a;
+  color: #e0e0e0;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 2px 5px;
+  font-family: monospace;
+  font-size: 11px;
+  width: 72px;
+}
+.editor-text-input::placeholder {
+  color: #666;
+}
+.editor-text-input:read-only {
+  border-color: #3a3a3a;
+  color: #888;
+}
+
+/* Slider group */
+.editor-slider-group {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.editor-slider-label {
+  color: #aaaaaa;
+  font-size: 10px;
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: right;
+}
+
+.editor-slider {
+  width: 90px;
+  accent-color: #4488cc;
+}
+
+.editor-slider-readout {
+  color: #c8c8c8;
+  font-size: 10px;
+  min-width: 28px;
+  text-align: left;
+}
+
+/* Advanced controls section */
+.editor-advanced {
+  /* no min-height needed; content fills it */
+}
+
+.editor-advanced-row {
+  background: #1e1e2a;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Section label (Vibrato / ADSR / CC) appearing at start of each advanced row */
+.editor-advanced-section-label {
+  color: #7a9acc;
+  font-size: 10px;
+  font-weight: bold;
+  min-width: 44px;
+  text-align: right;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* Curve open-button group */
+.editor-curve-btn-group {
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+}
+
+.editor-curve-btn {
+  padding: 3px 8px;
+  background: #2a3a4a;
+  color: #88ccff;
+  border: 1px solid #4a6a8a;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.editor-curve-btn:hover {
+  background: #3a4a6a;
+  color: #bbddff;
+}
+
+/* Grid section inside editor */
+.editor-grid-section {
+  border-top: 1px solid #444;
+  overflow-y: auto;
+}
+
+/* ── Curve editor modal ──────────────────────────────────────────────── */
+.curve-editor-modal {
+  min-width: 440px;
+}
+
+.curve-canvas {
+  display: block;
+  margin: 8px auto;
+  border: 1px solid #444;
+  border-radius: 3px;
+  cursor: crosshair;
+}
+
+.curve-hint {
+  color: #888;
+  font-size: 10px;
+  text-align: center;
+  padding: 0 12px 4px;
+}
+
+.curve-btn-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border-top: 1px solid #444;
+}
+
+.curve-btn-row button {
+  padding: 4px 12px;
+  background: #3a3a3a;
+  color: #e0e0e0;
+  border: 1px solid #666;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+.curve-btn-row button:hover {
+  background: #505050;
+  color: #ffffff;
+}
+</style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <h1>Music</h1>
+  <div class="toolbar-divider"></div>
+  <select id="score-select"></select>
+  <button id="btn-new" class="toolbar-btn">＋ New</button>
+  <span id="save-indicator"></span>
+  <div class="toolbar-divider"></div>
+  <button id="btn-play" class="toolbar-btn">▶ Play</button>
+  <button id="btn-stop" class="toolbar-btn">■ Stop</button>
+  <a id="btn-flac" href="/music/flac" class="toolbar-btn" style="text-decoration:none;">⬇ FLAC</a>
+  <div class="toolbar-divider"></div>
+  <div id="status-bar">Ready.</div>
+</div>
+
+<!-- Score editor -->
+<div id="main">
+  <div id="editor-area">
+    <textarea id="score-textarea" placeholder="Enter score here…
+piano: c4 c d e
+"></textarea>
+    <div id="parse-result"></div>
+  </div>
+
+  <!-- Docked instruments panel -->
+  <div id="instruments-panel">
+    <div id="instruments-header">
+      <span>Instruments</span>
+      <button class="inst-add-btn">+ Add</button>
+    </div>
+    <div class="inst-list"></div>
+  </div>
+</div>
+
+<script type="module">
+import { init } from '/static/music_app.js';
+
+init({
+  textarea:      document.getElementById('score-textarea'),
+  parseResultEl: document.getElementById('parse-result'),
+  statusEl:      document.getElementById('status-bar'),
+  panelEl:       document.getElementById('instruments-panel'),
+  scoreSelect:   document.getElementById('score-select'),
+  newBtn:        document.getElementById('btn-new'),
+  saveIndicator: document.getElementById('save-indicator'),
+});
+</script>
+</body>
+</html>

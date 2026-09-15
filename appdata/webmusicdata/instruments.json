@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Piano",
+    "bank": 0,
+    "program": 0,
+    "is_percussion": false,
+    "drum_note": null,
+    "volume": 100,
+    "pan": 64
+  }
+]
