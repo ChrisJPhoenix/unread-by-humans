@@ -1,0 +1,245 @@
+# test_primary.txt — slider_2d primary plan (--quick)
+# Covers the pure model layer: Curve construction, insert, remove, move,
+# sample (real monotone-Hermite spline), serialization round-trip.
+
+# --- Construction ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0.0
+arg value_max = 127.0
+arg value_min_label = "min"
+arg value_max_label = "max"
+arg time_left_label = "0s"
+arg time_right_label = "10s"
+arg initial_left_y = 64.0
+arg initial_right_y = 64.0
+save as: c
+# Curve has exactly two points after construction (no expect field needed —
+# covered by the insert/remove tests that follow with $c).
+
+# --- Insert ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0.0
+arg value_max = 127.0
+arg value_min_label = "min"
+arg value_max_label = "max"
+arg time_left_label = ""
+arg time_right_label = ""
+arg initial_left_y = 0.0
+arg initial_right_y = 127.0
+save as: c2
+
+call: slider_2d.curve.Curve.insert
+arg self = $c2
+arg x = 0.25
+arg y = 32.0
+
+call: slider_2d.curve.Curve.insert
+arg self = $c2
+arg x = 0.75
+arg y = 96.0
+
+# After two inserts, points list has 4 entries and is sorted.
+# (No direct list-equality expect yet — harness float comparison TBD.)
+
+# --- Insert raises: x out of range ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0.0
+arg value_max = 127.0
+arg value_min_label = ""
+arg value_max_label = ""
+arg time_left_label = ""
+arg time_right_label = ""
+arg initial_left_y = 64.0
+arg initial_right_y = 64.0
+save as: c3
+
+call: slider_2d.curve.Curve.insert
+arg self = $c3
+arg x = 0.0
+arg y = 64.0
+expect raises = "ValueError"
+
+call: slider_2d.curve.Curve.insert
+arg self = $c3
+arg x = 1.0
+arg y = 64.0
+expect raises = "ValueError"
+
+call: slider_2d.curve.Curve.insert
+arg self = $c3
+arg x = -0.1
+arg y = 64.0
+expect raises = "ValueError"
+
+call: slider_2d.curve.Curve.insert
+arg self = $c3
+arg x = 1.1
+arg y = 64.0
+expect raises = "ValueError"
+
+# --- Insert raises: y out of range ---
+
+call: slider_2d.curve.Curve.insert
+arg self = $c3
+arg x = 0.5
+arg y = 200.0
+expect raises = "ValueError"
+
+# --- Insert raises: x collision ---
+
+call: slider_2d.curve.Curve.insert
+arg self = $c3
+arg x = 0.5
+arg y = 64.0
+
+call: slider_2d.curve.Curve.insert
+arg self = $c3
+arg x = 0.5
+arg y = 50.0
+expect raises = "ValueError"
+
+# --- Remove ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0.0
+arg value_max = 127.0
+arg value_min_label = ""
+arg value_max_label = ""
+arg time_left_label = ""
+arg time_right_label = ""
+arg initial_left_y = 64.0
+arg initial_right_y = 64.0
+save as: c4
+
+call: slider_2d.curve.Curve.insert
+arg self = $c4
+arg x = 0.5
+arg y = 80.0
+
+# Remove left endpoint raises
+call: slider_2d.curve.Curve.remove
+arg self = $c4
+arg i = 0
+expect raises = "ValueError"
+
+# Remove right endpoint raises
+call: slider_2d.curve.Curve.remove
+arg self = $c4
+arg i = -1
+expect raises = "ValueError"
+
+# Remove middle point succeeds
+call: slider_2d.curve.Curve.remove
+arg self = $c4
+arg i = 1
+
+# --- Move ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0.0
+arg value_max = 127.0
+arg value_min_label = ""
+arg value_max_label = ""
+arg time_left_label = ""
+arg time_right_label = ""
+arg initial_left_y = 64.0
+arg initial_right_y = 64.0
+save as: c5
+
+# Move left endpoint: x must be clamped to 0.0 regardless of input.
+call: slider_2d.curve.Curve.move
+arg self = $c5
+arg i = 0
+arg x = 0.5
+arg y = 90.0
+
+# --- Sample (stub) ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0.0
+arg value_max = 100.0
+arg value_min_label = ""
+arg value_max_label = ""
+arg time_left_label = ""
+arg time_right_label = ""
+arg initial_left_y = 0.0
+arg initial_right_y = 100.0
+save as: c6
+
+# Single 2-point 0->100 curve: the monotone-Hermite segment reproduces the
+# straight line exactly, so sample at t=0.5 returns 50.0.
+call: slider_2d.curve.sample
+arg curve = $c6
+arg t = 0.5
+expect return = 50.0
+
+# Sample at left endpoint.
+call: slider_2d.curve.sample
+arg curve = $c6
+arg t = 0.0
+expect return = 0.0
+
+# Sample at right endpoint.
+call: slider_2d.curve.sample
+arg curve = $c6
+arg t = 1.0
+expect return = 100.0
+
+# --- Serialization round-trip ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0.0
+arg value_max = 127.0
+arg value_min_label = "min"
+arg value_max_label = "max"
+arg time_left_label = "0s"
+arg time_right_label = "10s"
+arg initial_left_y = 64.0
+arg initial_right_y = 64.0
+save as: c7
+
+call: slider_2d.curve.Curve.insert
+arg self = $c7
+arg x = 0.32
+arg y = 80.0
+
+call: slider_2d.curve.to_dict
+arg curve = $c7
+save as: d7
+
+call: slider_2d.curve.from_dict
+arg d = $d7
+save as: c7b
+# Round-trip succeeded without raising; structural equality tested in
+# test_gui_smoke.txt handler tests.
+
+# --- Reset ---
+
+call: slider_2d.curve.Curve
+arg value_min = 0
+arg value_max = 127
+arg value_min_label = ""
+arg value_max_label = ""
+arg time_left_label = ""
+arg time_right_label = ""
+arg initial_left_y = 64.0
+arg initial_right_y = 64.0
+save as: c8
+
+call: slider_2d.curve.Curve.insert
+arg self = $c8
+arg x = 0.5
+arg y = 100.0
+
+call: slider_2d.curve.Curve.reset
+arg self = $c8
+
+# After reset, the interior point is gone and both endpoints are back to 64.
+# A flat curve at 64 sampled at t=0.5 must return exactly 64.0.
+call: slider_2d.curve.sample
+arg curve = $c8
+arg t = 0.5
+expect return = 64.0

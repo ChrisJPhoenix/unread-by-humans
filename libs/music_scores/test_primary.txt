@@ -1,0 +1,144 @@
+# music_scores: primary plan (quick + full mode).
+#
+# All six public functions are fully implemented. This plan covers:
+#   1. is_valid_score_name — valid/invalid bare filenames.
+#   2. normalize_score_name — trim + default extension, round-trips, raise.
+#   3. score_rel_path — happy path + raise-on-invalid.
+#   4. filter_and_sort_scores — mixed extension/dotfile/case list (JSON in/out).
+#   5. parse_session — good/missing/corrupt/traversing payloads + coercion.
+#   6. build_session — smoke (dict return; no literal-dict assertion possible).
+
+
+# ── is_valid_score_name ──────────────────────────────────────────────────────
+
+call: music_scores.is_valid_score_name
+arg name = "happy.music"
+expect return = true
+
+call: music_scores.is_valid_score_name
+arg name = "a.txt"
+expect return = true
+
+call: music_scores.is_valid_score_name
+arg name = "../x.music"
+expect return = false
+
+call: music_scores.is_valid_score_name
+arg name = "a/b.music"
+expect return = false
+
+# Plan-string "a\\b.music" unescapes to a single backslash: a\b.music.
+call: music_scores.is_valid_score_name
+arg name = "a\\b.music"
+expect return = false
+
+call: music_scores.is_valid_score_name
+arg name = ".hidden.music"
+expect return = false
+
+call: music_scores.is_valid_score_name
+arg name = "noext"
+expect return = false
+
+call: music_scores.is_valid_score_name
+arg name = ""
+expect return = false
+
+
+# ── normalize_score_name ─────────────────────────────────────────────────────
+
+call: music_scores.normalize_score_name
+arg name = "song"
+expect return = "song.music"
+
+call: music_scores.normalize_score_name
+arg name = "song.music"
+expect return = "song.music"
+
+call: music_scores.normalize_score_name
+arg name = "a.txt"
+expect return = "a.txt"
+
+call: music_scores.normalize_score_name
+arg name = "../x"
+expect raises = "ValueError"
+
+
+# ── score_rel_path ────────────────────────────────────────────────────────────
+
+call: music_scores.score_rel_path
+arg name = "happy"
+expect return = "appdata/webmusicdata/scores/happy.music"
+
+call: music_scores.score_rel_path
+arg name = "../x"
+expect raises = "ValueError"
+
+
+# ── filter_and_sort_scores ───────────────────────────────────────────────────
+#
+# Kept entries (valid: .music/.txt, no leading dot): "Banana.music",
+# "apple.txt", "notes.txt". Dropped: ".hidden.music" (dotfile),
+# "readme.md" (wrong extension), "cherry.MUSIC" (extension is case-sensitive,
+# not one of ".music"/".txt"). Sorted case-insensitively.
+
+call: music_scores.filter_and_sort_scores
+arg names_json = "[\"Banana.music\", \".hidden.music\", \"readme.md\", \"apple.txt\", \"cherry.MUSIC\", \"notes.txt\"]"
+expect return = "[\"apple.txt\", \"Banana.music\", \"notes.txt\"]"
+
+# Empty input list → empty output list.
+call: music_scores.filter_and_sort_scores
+arg names_json = "[]"
+expect return = "[]"
+
+
+# ── parse_session ─────────────────────────────────────────────────────────────
+
+# Good payload → succeeds (non-None; dict value can't be asserted as a literal).
+call: music_scores.parse_session
+arg text = "{\"last_file\": \"happy.music\", \"caret\": 5, \"scroll\": 10}"
+
+# Missing/empty text → corrupt JSON → None.
+call: music_scores.parse_session
+arg text = ""
+expect return = null
+
+# Corrupt JSON → None.
+call: music_scores.parse_session
+arg text = "{not valid json"
+expect return = null
+
+# Traversing last_file → None.
+call: music_scores.parse_session
+arg text = "{\"last_file\": \"../etc\", \"caret\": 0, \"scroll\": 0}"
+expect return = null
+
+# Missing last_file key entirely → None.
+call: music_scores.parse_session
+arg text = "{\"caret\": 3}"
+expect return = null
+
+# Negative caret coerces to 0 (default) — no-raise, value not asserted.
+call: music_scores.parse_session
+arg text = "{\"last_file\": \"happy.music\", \"caret\": -5, \"scroll\": 3}"
+
+# Non-int caret coerces to 0 (default) — no-raise.
+call: music_scores.parse_session
+arg text = "{\"last_file\": \"happy.music\", \"caret\": \"abc\"}"
+
+# Absent caret/scroll default to 0 — no-raise.
+call: music_scores.parse_session
+arg text = "{\"last_file\": \"happy.music\"}"
+
+
+# ── build_session ─────────────────────────────────────────────────────────────
+#
+# Dict return can't be asserted as a plan literal; verify no-raise.
+
+call: music_scores.build_session
+arg current = "happy.music"
+
+call: music_scores.build_session
+arg current = "happy.music"
+arg caret = 5
+arg scroll = 10

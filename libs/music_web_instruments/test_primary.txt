@@ -1,0 +1,288 @@
+# music_web_instruments: primary plan (quick + full mode).
+#
+# All five public functions are now fully implemented.  This plan covers:
+#   1. build_channel_ccs — known patch → known CC dict (no-raise; dict return).
+#   2. instruments_arg_from_designed — known rows → exact JSON string.
+#   3. channel_ccs_from_designed — known rows + channels → no-raise.
+#   4. channel_automation_from_designed — known rows + channels → no-raise.
+#   5. play_offset_for_caret — small fixed scores → exact int offsets.
+
+
+# ── build_channel_ccs ─────────────────────────────────────────────────────────
+#
+# A default-values patch (all fields at GM defaults) produces a known CC dict.
+# The dict return cannot be asserted as a literal in plan grammar; we verify
+# no-raise and rely on the instruments_arg oracle below to exercise the same
+# internal helpers transitively.
+
+call: music_web_instruments.build_channel_ccs
+arg patch_json = "{\"volume\": 100, \"pan\": 64, \"reverb\": 40, \"chorus\": 0, \"vibrato_depth\": 0, \"vibrato_rate_hz\": 3.16227766, \"vibrato_delay_s\": 0.01, \"attack_s\": 0.01, \"release_s\": 0.1}"
+
+# A non-default patch — high reverb, non-default release — also no-raise.
+call: music_web_instruments.build_channel_ccs
+arg patch_json = "{\"volume\": 80, \"pan\": 32, \"reverb\": 100, \"chorus\": 20, \"vibrato_depth\": 40, \"vibrato_rate_hz\": 10.0, \"vibrato_delay_s\": 0.5, \"attack_s\": 0.5, \"release_s\": 0.5}"
+
+# Missing keys fall back to GM defaults (no KeyError).
+call: music_web_instruments.build_channel_ccs
+arg patch_json = "{\"program\": 0}"
+
+
+# ── instruments_arg_from_designed ────────────────────────────────────────────
+#
+# Two melodic rows + one percussion row → exact JSON string.
+# Expected value computed by tracing _designed_from_rows:
+#   - "piano" → bank=0, program=0, is_percussion=false, drum_note=null
+#   - "strings" → bank=0, program=48, is_percussion=false, drum_note=null
+#   - "kick" → bank=128, program=0, is_percussion=true, drum_note=36
+# json.dumps preserves insertion order and uses Python's default separators
+# (', ' and ': ') — verified by reading the implementation.
+
+call: music_web_instruments.instruments_arg_from_designed
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0, \"is_percussion\": false, \"drum_note\": null}, {\"name\": \"strings\", \"bank\": 0, \"program\": 48, \"is_percussion\": false, \"drum_note\": null}, {\"name\": \"kick\", \"bank\": 128, \"program\": 0, \"is_percussion\": true, \"drum_note\": 36}]"
+expect return = "{\"piano\": {\"bank\": 0, \"program\": 0, \"is_percussion\": false, \"drum_note\": null}, \"strings\": {\"bank\": 0, \"program\": 48, \"is_percussion\": false, \"drum_note\": null}, \"kick\": {\"bank\": 128, \"program\": 0, \"is_percussion\": true, \"drum_note\": 36}}"
+
+# Rows with an empty name are skipped.
+call: music_web_instruments.instruments_arg_from_designed
+arg rows_json = "[{\"name\": \"\", \"bank\": 0, \"program\": 0}, {\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+expect return = "{\"piano\": {\"bank\": 0, \"program\": 0, \"is_percussion\": false, \"drum_note\": null}}"
+
+# Empty rows list → empty dict.
+call: music_web_instruments.instruments_arg_from_designed
+arg rows_json = "[]"
+expect return = "{}"
+
+
+# ── channel_ccs_from_designed ─────────────────────────────────────────────────
+#
+# channels_json is a JSON-encoded dict[str, int] from parse_score.instrument_channels.
+# piano → channel 0, strings → channel 1 (first-appearance order).
+# We only verify no-raise; CC dict values are exercised by build_channel_ccs above.
+
+call: music_web_instruments.channel_ccs_from_designed
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}, {\"name\": \"strings\", \"bank\": 0, \"program\": 48}]"
+arg channels_json = "{\"piano\": 0, \"strings\": 1}"
+
+# An instrument name in channels that is not in rows → silently skipped (no error).
+call: music_web_instruments.channel_ccs_from_designed
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+arg channels_json = "{\"piano\": 0, \"organ\": 3}"
+
+# Empty channels → empty dict return (no-raise).
+call: music_web_instruments.channel_ccs_from_designed
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+arg channels_json = "{}"
+
+
+# ── channel_automation_from_designed ─────────────────────────────────────────
+#
+# Returns per-channel automation list; we verify no-raise.
+
+call: music_web_instruments.channel_automation_from_designed
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+arg channels_json = "{\"piano\": 0}"
+
+# Percussion row — automation still produced (same three curves).
+call: music_web_instruments.channel_automation_from_designed
+arg rows_json = "[{\"name\": \"kick\", \"bank\": 128, \"program\": 0, \"is_percussion\": true, \"drum_note\": 36}]"
+arg channels_json = "{\"kick\": 9}"
+
+# Empty rows list — all channels → empty result (no-raise).
+call: music_web_instruments.channel_automation_from_designed
+arg rows_json = "[]"
+arg channels_json = "{\"piano\": 0}"
+
+
+# ── play_offset_for_caret ────────────────────────────────────────────────────
+#
+# Score: single-line "piano:C4 C4 D4 E4"
+# Tokens in parse_score output (col offsets within line 0):
+#   - instrument token "piano:C4" at col 0-8 (not a NoteEvent)
+#   - NoteEvent C4: line_idx=0, col_start=9, col_end=11 → abs_offset=9
+#   - NoteEvent D4: line_idx=0, col_start=12, col_end=14 → abs_offset=12
+#   - NoteEvent E4: line_idx=0, col_start=15, col_end=17 → abs_offset=15
+# Line 0 starts at abs offset 0 (single line, no preceding newlines).
+
+# Caret inside the C4 token → return its abs start offset 9.
+call: music_web_instruments.play_offset_for_caret
+arg text = "piano:C4 C4 D4 E4"
+arg caret_offset = 9
+expect return = 9
+
+# Caret inside D4 → 12.
+call: music_web_instruments.play_offset_for_caret
+arg text = "piano:C4 C4 D4 E4"
+arg caret_offset = 13
+expect return = 12
+
+# Caret inside E4 → 15.
+call: music_web_instruments.play_offset_for_caret
+arg text = "piano:C4 C4 D4 E4"
+arg caret_offset = 15
+expect return = 15
+
+# Caret on the instrument token (col 3 inside "piano:C4") → not a note → 0.
+call: music_web_instruments.play_offset_for_caret
+arg text = "piano:C4 C4 D4 E4"
+arg caret_offset = 3
+expect return = 0
+
+# Caret beyond last character → not on any note → 0.
+call: music_web_instruments.play_offset_for_caret
+arg text = "piano:C4 C4 D4 E4"
+arg caret_offset = 18
+expect return = 0
+
+# Empty text → no sections → 0.
+call: music_web_instruments.play_offset_for_caret
+arg text = ""
+arg caret_offset = 0
+expect return = 0
+
+# Two-section score: caret in verse section hits E4 note.
+# Score layout (0-indexed lines):
+#   0: "intro"          (section header, line_start=0)
+#   1: "piano:C4 C4"   (notes: C4 at col 9-11 → abs=6+9=15)
+#   2: ""              (blank)
+#   3: "verse"         (section header, line_start=3)
+#   4: "piano:C4 E4"   (notes: E4 at col 9-11)
+#                       abs = len("intro\n")+len("piano:C4 C4\n")+len("\n")+len("verse\n")+9
+#                           = 6+12+1+6+9 = 34
+# caret_offset=34 → in verse section → on E4 → return 34.
+call: music_web_instruments.play_offset_for_caret
+arg text = "intro\npiano:C4 C4\n\nverse\npiano:C4 E4"
+arg caret_offset = 34
+expect return = 34
+
+# caret_offset=15 → in intro section → on C4 at abs 15 → return 15.
+call: music_web_instruments.play_offset_for_caret
+arg text = "intro\npiano:C4 C4\n\nverse\npiano:C4 E4"
+arg caret_offset = 15
+expect return = 15
+
+
+# ── play_render_bundle ───────────────────────────────────────────────────────
+#
+# Score: "piano:c4 c d e" (single line, single section).
+# Parsing (music_parser defaults: 120 BPM, v80):
+#   - velocity: round(80*127/100) = 102
+#   - c4 anchor → MIDI 60; c → MIDI 60; d → MIDI 62; e → MIDI 64
+#   - at 120 BPM each quarter note = 0.5s
+#   - times: c4@0.0, c@0.5, d@1.0, e@1.5  (all section-relative seconds)
+#   - channel 0 for piano (first/only instrument)
+#   - programs: {0: (0, 0)} → serialized as {"0": [0, 0]}
+#
+# Token column offsets in "piano:c4 c d e":
+#   piano:c4  cols 0-8   (anchor, not a NoteEvent)
+#   c         cols 9-10  → abs_offset 9  → time 0.0
+#   d         cols 11-12 → abs_offset 11 → time 1.0
+#   e         cols 13-14 → abs_offset 13 → time 1.5
+#
+# rows_json for piano: bank=0, program=0 (built-in piano defaults).
+
+# Caret at offset 0 (not on a note) → play from section start → all 4 events.
+# The first event has time=0.0 and midi_note=60.
+call: music_web_instruments.play_render_bundle
+arg text = "piano:c4 c d e"
+arg caret_offset = 0
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+expect contains = "\"score\""
+expect contains = "\"programs\""
+expect contains = "\"channel_ccs\""
+expect contains = "\"channel_automation\""
+expect contains = "\"midi_note\": 60"
+expect contains = "\"time\": 0.0"
+expect contains = "\"0\": [0, 0]"
+
+# Caret on the d token (abs offset 11) → start_time=1.0 → two events: d and e.
+# d is emitted as time=0.0 (shifted), e as time=0.5.
+# c4 and first c are dropped (time < 1.0).
+call: music_web_instruments.play_render_bundle
+arg text = "piano:c4 c d e"
+arg caret_offset = 11
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+expect contains = "\"midi_note\": 62"
+expect contains = "\"time\": 0.0"
+# The earlier c notes must NOT appear (they were before start_time).
+# We can't assert absence with `contains`; the oracle is the presence of d at 0.0.
+# Verify e also appears at shifted time 0.5.
+expect contains = "\"midi_note\": 64"
+
+# Empty text → empty bundle (no raise).
+call: music_web_instruments.play_render_bundle
+arg text = ""
+arg caret_offset = 0
+arg rows_json = "[]"
+expect contains = "\"score\""
+expect contains = "\"programs\""
+
+# Two-section score: caret in verse → only verse events emitted.
+# Score:
+#   0: "intro"           (section header, line_start=0)
+#   1: "piano:c4 c d"   (three notes in intro)
+#   2: ""               (blank — skipped)
+#   3: "verse"          (section header, line_start=3)
+#   4: "piano:c4 e"     (two notes in verse: c4=60, e=64)
+# Caret at offset 0 → intro section → intro notes.
+call: music_web_instruments.play_render_bundle
+arg text = "intro\npiano:c4 c d\n\nverse\npiano:c4 e"
+arg caret_offset = 0
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+expect contains = "\"midi_note\": 60"
+
+# Caret inside verse (after verse header, offset 32) → verse section events.
+# "intro\npiano:c4 c d\n\nverse\npiano:c4 e"
+# Offset breakdown: "intro\n"=6, "piano:c4 c d\n"=13, "\n"=1, "verse\n"=6 → offset 26 = start of last line
+# abs offset 26 + 9 = 35 → on the "e" token of piano in verse.
+# Verse notes: c4 at time 0.0 (midi 60), e at time 0.5 (midi 64).
+# Caret at 32 is inside "verse\n" line → on the section header → not a note → start_time=0.
+call: music_web_instruments.play_render_bundle
+arg text = "intro\npiano:c4 c d\n\nverse\npiano:c4 e"
+arg caret_offset = 32
+arg rows_json = "[{\"name\": \"piano\", \"bank\": 0, \"program\": 0}]"
+expect contains = "\"midi_note\": 64"
+
+
+# ── audition_score_and_programs ──────────────────────────────────────────────
+#
+# Happy-path melodic: bank=0, program=40 (violin), pitch="C4", velocity=100,
+# duration_s=1.0.  C4 = MIDI note 60.
+# We use `contains` because the JSON key order varies and the full channel_ccs
+# and channel_automation values are complex; we check the load-bearing fields.
+
+call: music_web_instruments.audition_score_and_programs
+arg spec_json = "{\"bank\": 0, \"program\": 40, \"pitch\": \"C4\", \"velocity\": 100, \"duration_s\": 1.0, \"volume\": 100, \"pan\": 64, \"reverb\": 40, \"chorus\": 0, \"vibrato_depth\": 0, \"vibrato_delay_s\": 0.01, \"attack_s\": 0.01, \"release_s\": 0.1}"
+expect contains = "\"midi_note\": 60"
+expect contains = "\"velocity\": 100"
+expect contains = "\"channel\": 0"
+expect contains = "\"0\": [0, 40]"
+expect contains = "\"7\": 100"
+expect contains = "\"10\": 64"
+
+# Happy-path melodic chord: C4 E4 G4 → MIDI 60, 64, 67 — three events.
+
+call: music_web_instruments.audition_score_and_programs
+arg spec_json = "{\"bank\": 0, \"program\": 0, \"pitch\": \"C4 E4 G4\", \"velocity\": 80, \"duration_s\": 0.5, \"volume\": 100, \"pan\": 64, \"reverb\": 40, \"chorus\": 0, \"vibrato_depth\": 0, \"vibrato_delay_s\": 0.01, \"attack_s\": 0.01, \"release_s\": 0.1}"
+expect contains = "\"midi_note\": 60"
+expect contains = "\"midi_note\": 64"
+expect contains = "\"midi_note\": 67"
+expect contains = "\"velocity\": 80"
+
+# Happy-path percussion: drum_note=38 (Acoustic Snare), is_percussion=true.
+# programs["0"] = [128, 0]; pitch key is ignored.
+
+call: music_web_instruments.audition_score_and_programs
+arg spec_json = "{\"bank\": 128, \"program\": 0, \"is_percussion\": true, \"drum_note\": 38, \"velocity\": 90, \"duration_s\": 0.3, \"volume\": 100, \"pan\": 64, \"reverb\": 40, \"chorus\": 0, \"vibrato_depth\": 0, \"vibrato_delay_s\": 0.01, \"attack_s\": 0.01, \"release_s\": 0.1}"
+expect contains = "\"midi_note\": 38"
+expect contains = "\"0\": [128, 0]"
+
+# Percussion with null drum_note falls back to 38 (Acoustic Snare default).
+
+call: music_web_instruments.audition_score_and_programs
+arg spec_json = "{\"bank\": 128, \"program\": 0, \"is_percussion\": true, \"drum_note\": null, \"volume\": 100, \"pan\": 64, \"reverb\": 40, \"chorus\": 0, \"vibrato_depth\": 0, \"vibrato_delay_s\": 0.01, \"attack_s\": 0.01, \"release_s\": 0.1}"
+expect contains = "\"midi_note\": 38"
+
+# Defaults: missing velocity → 100, missing duration_s → 1.0 (no-raise check).
+
+call: music_web_instruments.audition_score_and_programs
+arg spec_json = "{\"bank\": 0, \"program\": 0, \"pitch\": \"A4\", \"volume\": 100, \"pan\": 64, \"reverb\": 40, \"chorus\": 0, \"vibrato_depth\": 0, \"vibrato_delay_s\": 0.01, \"attack_s\": 0.01, \"release_s\": 0.1}"
+expect contains = "\"midi_note\": 69"

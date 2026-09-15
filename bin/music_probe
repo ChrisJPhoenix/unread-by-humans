@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$SCRIPT_DIR/.."
+exec "$REPO_ROOT/venv/bin/python3" "$REPO_ROOT/libs/music_render/probe.py" "$@"

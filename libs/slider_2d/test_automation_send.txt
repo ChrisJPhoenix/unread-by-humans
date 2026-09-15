@@ -1,0 +1,82 @@
+# test_automation_send.txt — slider_2d automation send helpers (--full)
+# Covers outgoing_value (CC and bend), automation_phase, should_send.
+
+# --- outgoing_value: CC normal case ---
+
+call: slider_2d.automation_send.outgoing_value
+arg target = "cc"
+arg value = 63.4
+expect return = 63
+
+# --- outgoing_value: CC clamp high ---
+
+call: slider_2d.automation_send.outgoing_value
+arg target = "cc"
+arg value = 200.0
+expect return = 127
+
+# --- outgoing_value: CC clamp low ---
+
+call: slider_2d.automation_send.outgoing_value
+arg target = "cc"
+arg value = -5.0
+expect return = 0
+
+# --- outgoing_value: bend at zero ---
+
+call: slider_2d.automation_send.outgoing_value
+arg target = "bend"
+arg value = 0.0
+arg bend_range = 6.0
+expect return = 0
+
+# --- outgoing_value: bend clamp high (100/6*8192=136533 → 8191) ---
+
+call: slider_2d.automation_send.outgoing_value
+arg target = "bend"
+arg value = 100.0
+arg bend_range = 6.0
+expect return = 8191
+
+# --- outgoing_value: bend clamp low (-100/6*8192=-136533 → -8192) ---
+
+call: slider_2d.automation_send.outgoing_value
+arg target = "bend"
+arg value = -100.0
+arg bend_range = 6.0
+expect return = -8192
+
+# --- automation_phase: normal repeat ---
+
+call: slider_2d.automation_send.automation_phase
+arg elapsed = 0.5
+arg repeat_s = 2.0
+expect return = 0.25
+
+# --- automation_phase: disabled (repeat_s=0) ---
+
+call: slider_2d.automation_send.automation_phase
+arg elapsed = 0.5
+arg repeat_s = 0.0
+expect return = 0.0
+
+# --- should_send: no prior value → always send ---
+
+call: slider_2d.automation_send.should_send
+arg last_value = null
+arg new_value = 10
+expect return = true
+
+# --- should_send: same value → suppress ---
+
+call: slider_2d.automation_send.should_send
+arg last_value = 10
+arg new_value = 10
+expect return = false
+
+# --- should_send: changed value → send ---
+
+call: slider_2d.automation_send.should_send
+arg last_value = 10
+arg new_value = 11
+expect return = true

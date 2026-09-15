@@ -1,0 +1,173 @@
+# music_render: primary test plan.
+#
+# All scheduling/render functions are real (non-stub).
+# FakeBackend is the deterministic reference backend used for PCM oracles.
+# All expected values are derived by hand from the FakeBackend contract
+# (amplitude = note/127.0 per active note, summed+clipped) and the WAV spec.
+
+# --- FakeBackend: note 60 -> amplitude 60/127 ≈ 0.47244094 ---
+call: music_render.fake_backend_render_note
+arg note = 60
+arg n_frames = 4
+tolerance: 1e-5
+expect return =
+  0.47244094 0.47244094
+  0.47244094 0.47244094
+  0.47244094 0.47244094
+  0.47244094 0.47244094
+
+# note 0 -> amplitude 0.0/127 = 0.0 (silence)
+call: music_render.fake_backend_render_note
+arg note = 0
+arg n_frames = 2
+tolerance: 0
+expect return =
+  0.0 0.0
+  0.0 0.0
+
+# note 127 -> amplitude 127/127 = 1.0 (full scale)
+call: music_render.fake_backend_render_note
+arg note = 127
+arg n_frames = 2
+tolerance: 0
+expect return =
+  1.0 1.0
+  1.0 1.0
+
+# --- build_render_schedule: empty score → empty schedule ---
+call: music_render.build_render_schedule
+arg score_json = "[]"
+arg sample_rate = 44100
+expect return = "[]"
+
+# --- build_render_schedule: one note at sample_rate=100 ---
+# time=0.0, duration=1.0 → on@frame=0, off@frame=100.
+# Sort order: (0, 2) for note_on then (100, 0) for note_off → note_on first.
+call: music_render.build_render_schedule
+arg score_json = "[{\"events\": [{\"time\": 0.0, \"duration\": 1.0, \"midi_note\": 60, \"velocity\": 80, \"channel\": 0}]}]"
+arg sample_rate = 100
+expect return = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}, {\"type\": \"note_off\", \"frame\": 100, \"note\": 60, \"channel\": 0}]"
+
+# --- build_render_schedule: retriggered note at equal frame ---
+# note A: time=0.0, duration=0.5 → on@0, off@50
+# note B: time=0.5, duration=0.5 → on@50, off@100
+# At frame 50: off_A sort key=(50,0) < on_B sort key=(50,2) → off before on.
+call: music_render.build_render_schedule
+arg score_json = "[{\"events\": [{\"time\": 0.0, \"duration\": 0.5, \"midi_note\": 60, \"velocity\": 80, \"channel\": 0}, {\"time\": 0.5, \"duration\": 0.5, \"midi_note\": 62, \"velocity\": 80, \"channel\": 0}]}]"
+arg sample_rate = 100
+expect return = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}, {\"type\": \"note_off\", \"frame\": 50, \"note\": 60, \"channel\": 0}, {\"type\": \"note_on\", \"frame\": 50, \"note\": 62, \"velocity\": 80, \"channel\": 0}, {\"type\": \"note_off\", \"frame\": 100, \"note\": 62, \"channel\": 0}]"
+
+# --- fold_automation_into_schedule ---
+# Empty automation → schedule unchanged.
+call: music_render.fold_automation_into_schedule
+arg schedule_json = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}]"
+arg automation_json = "[]"
+expect return = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}]"
+
+# CC event inserts between note_on@0 and note_off@100.
+# Merge: note_on(0,2), cc(50,1), note_off(100,0) → sorted as written.
+call: music_render.fold_automation_into_schedule
+arg schedule_json = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}, {\"type\": \"note_off\", \"frame\": 100, \"note\": 60, \"channel\": 0}]"
+arg automation_json = "[{\"type\": \"cc\", \"frame\": 50, \"channel\": 0, \"cc\": 7, \"value\": 64}]"
+expect return = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}, {\"type\": \"cc\", \"frame\": 50, \"channel\": 0, \"cc\": 7, \"value\": 64}, {\"type\": \"note_off\", \"frame\": 100, \"note\": 60, \"channel\": 0}]"
+
+# CC at same frame as note_on: CC priority=1 < note_on priority=2 → CC first.
+call: music_render.fold_automation_into_schedule
+arg schedule_json = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}]"
+arg automation_json = "[{\"type\": \"cc\", \"frame\": 0, \"channel\": 0, \"cc\": 7, \"value\": 100}]"
+expect return = "[{\"type\": \"cc\", \"frame\": 0, \"channel\": 0, \"cc\": 7, \"value\": 100}, {\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}]"
+
+# --- render_pcm_with_fake_backend: tiny one-note schedule ---
+# sample_rate=2, one note: time=0.0, duration=0.5s, note=60, vel=80, ch=0
+#   on_frame  = round(0.0 * 2) = 0
+#   off_frame = round(0.5 * 2) = 1
+#   tail_frames = 2 * 2 = 4
+#   total_frames = 1 + 4 = 5
+#
+# Render trace (FakeBackend, amplitude = 60/127 ≈ 0.47244094):
+#   Pull until frame 0 → nothing (rendered=0 not < 0)
+#   Dispatch note_on(60, 80, 0)  → note 60 active
+#   Pull until frame 1 → 1 frame: [0.47244094, 0.47244094]
+#   Dispatch note_off(60, 0)     → note 60 off
+#   Pull until total_frames=5    → 4 frames: silence
+#
+# Result shape (5, 2):
+call: music_render.build_render_schedule
+arg score_json = "[{\"events\": [{\"time\": 0.0, \"duration\": 0.5, \"midi_note\": 60, \"velocity\": 80, \"channel\": 0}]}]"
+arg sample_rate = 2
+save as: tiny_schedule_60
+
+call: music_render.render_pcm_with_fake_backend
+arg schedule_json = $tiny_schedule_60
+arg sample_rate = 2
+tolerance: 1e-5
+expect return =
+  0.47244094 0.47244094
+  0.0 0.0
+  0.0 0.0
+  0.0 0.0
+  0.0 0.0
+
+# Two-note render: notes 60 and 127 both active simultaneously.
+# sample_rate=2, note 60 at t=0.0 dur=0.5, note 127 at t=0.0 dur=0.5
+#   Both notes: on@0, off@1.
+#   tail_frames=4, total_frames=5.
+#   While both notes are active: amplitude = clip(60/127 + 127/127, -1, 1) = clip(1.47244, -1, 1) = 1.0
+# Result: 1 frame at 1.0, then 4 frames at 0.0.
+call: music_render.build_render_schedule
+arg score_json = "[{\"events\": [{\"time\": 0.0, \"duration\": 0.5, \"midi_note\": 60, \"velocity\": 80, \"channel\": 0}, {\"time\": 0.0, \"duration\": 0.5, \"midi_note\": 127, \"velocity\": 80, \"channel\": 0}]}]"
+arg sample_rate = 2
+save as: two_note_schedule
+
+call: music_render.render_pcm_with_fake_backend
+arg schedule_json = $two_note_schedule
+arg sample_rate = 2
+tolerance: 0
+expect return =
+  1.0 1.0
+  0.0 0.0
+  0.0 0.0
+  0.0 0.0
+  0.0 0.0
+
+# --- render_and_report_channels: routing oracle ---
+# Schedule with note events on channel 0 and channel 1.
+# note A: channel=0, time=0.0 dur=0.5
+# note B: channel=1, time=0.0 dur=0.5
+# render_and_report_channels should return "[0, 1]".
+call: music_render.render_and_report_channels
+arg schedule_json = "[{\"type\": \"note_on\", \"frame\": 0, \"note\": 60, \"velocity\": 80, \"channel\": 0}, {\"type\": \"note_on\", \"frame\": 0, \"note\": 62, \"velocity\": 80, \"channel\": 1}, {\"type\": \"note_off\", \"frame\": 1, \"note\": 60, \"channel\": 0}, {\"type\": \"note_off\", \"frame\": 1, \"note\": 62, \"channel\": 1}]"
+arg sample_rate = 2
+expect return = "[0, 1]"
+
+# --- render_song_and_report_setup: program-select + bend-range + CC oracle ---
+# One note on channel 0, programs_json selects bank 0 program 40 on channel 0,
+# initial CCs: volume=100 pan=64.  No automation.
+# Expected report (sort_keys=True):
+#   bend_ranges: {"0": 6}  (±6 semitones applied for every channel in programs_json)
+#   final_ccs:   {"0": {"10": 64, "7": 100}}  (CC keys are strings, sorted: "10" < "7")
+#   programs:    {"0": [0, 40]}
+call: music_render.render_song_and_report_setup
+arg score_json = "[{\"events\": [{\"time\": 0.0, \"duration\": 0.5, \"midi_note\": 60, \"velocity\": 80, \"channel\": 0}]}]"
+arg instruments_json = "{}"
+arg programs_json = "{\"0\": [0, 40]}"
+arg channel_ccs_json = "{\"0\": {\"7\": 100, \"10\": 64}}"
+arg channel_automation_json = "null"
+arg sample_rate = 100
+expect return = "{\"bend_ranges\": {\"0\": 6}, \"final_ccs\": {\"0\": {\"10\": 64, \"7\": 100}}, \"programs\": {\"0\": [0, 40]}}"
+
+# --- render_song_and_report_setup: automation from_dict fix oracle ---
+# Pass a non-flat CC automation curve for channel 0 (initial_left_y=0, initial_right_y=127).
+# At sample_rate=100, repeat_s=1.0 → total_frames=100.
+# Only frame 0 is sampled (next chunk at 512 > 100).
+# At phase 0.0 the curve returns initial_left_y=0, so CC 11 is set to 0.
+# This oracle FAILS if _automation_dicts_to_schedule_events passes a raw dict to
+# slider_2d.sample (which expects a Curve object), and PASSES after the from_dict fix.
+call: music_render.render_song_and_report_setup
+arg score_json = "[{\"events\": [{\"time\": 0.0, \"duration\": 0.5, \"midi_note\": 60, \"velocity\": 80, \"channel\": 0}]}]"
+arg instruments_json = "{}"
+arg programs_json = "{}"
+arg channel_ccs_json = "{}"
+arg channel_automation_json = "{\"0\": [{\"target\": \"cc\", \"cc\": 11, \"curve\": {\"value_min\": 0, \"value_max\": 127, \"value_min_label\": \"0\", \"value_max_label\": \"127\", \"time_left_label\": \"\", \"time_right_label\": \"\", \"initial_left_y\": 0, \"initial_right_y\": 127, \"points\": [[0.0, 0], [1.0, 127]]}, \"repeat_s\": 1.0}]}"
+arg sample_rate = 100
+expect return = "{\"bend_ranges\": {}, \"final_ccs\": {\"0\": {\"11\": 0}}, \"programs\": {}}"
