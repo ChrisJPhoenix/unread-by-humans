@@ -1,0 +1,453 @@
+# dev_test: primary test plan
+#
+# Covers only the pure helpers and their JSON wrappers — the orchestration
+# helpers touch I/O and subprocesses so are exercised via the full app runners.
+
+# summary_line: all-pass run with one stub hit.
+call: dev_test.summary_line
+arg n_pass = 2
+arg n_fail = 0
+arg n_err = 0
+arg n_stub = 1
+expect return = "summary: 2 passed, 0 failed, 0 error(s); 1 unique stub(s) hit"
+
+# summary_line: mixed results with no stubs.
+call: dev_test.summary_line
+arg n_pass = 3
+arg n_fail = 1
+arg n_err = 2
+arg n_stub = 0
+expect return = "summary: 3 passed, 1 failed, 2 error(s); 0 unique stub(s) hit"
+
+# collect_unique_json: dedup — "b" already present, "c" is new.
+call: dev_test.collect_unique_json
+arg existing_json = "[\"a\", \"b\"]"
+arg new_json = "[\"b\", \"c\"]"
+expect return = "[\"a\", \"b\", \"c\"]"
+
+# collect_unique_json: order-preserve — "y" already present, "x" already present, "z" is new.
+call: dev_test.collect_unique_json
+arg existing_json = "[\"x\", \"y\"]"
+arg new_json = "[\"y\", \"x\", \"z\"]"
+expect return = "[\"x\", \"y\", \"z\"]"
+
+# collect_unique_json: empty existing — result equals new_items.
+call: dev_test.collect_unique_json
+arg existing_json = "[]"
+arg new_json = "[\"x\"]"
+expect return = "[\"x\"]"
+
+# tally_json: 2 pass, 1 fail, 1 error.
+call: dev_test.tally_json
+arg statuses_json = "[\"pass\", \"pass\", \"fail\", \"error\"]"
+expect return = "[2, 1, 1]"
+
+# aggregate_exit_code: all domains pass → 0.
+call: dev_test.aggregate_exit_code
+arg domain1_ok = true
+arg domain2_ok = true
+arg domain3_ok = true
+expect return = 0
+
+# aggregate_exit_code: one domain fails → 1.
+call: dev_test.aggregate_exit_code
+arg domain1_ok = true
+arg domain2_ok = false
+arg domain3_ok = true
+expect return = 1
+
+# status_label: ok → "PASS".
+call: dev_test.status_label
+arg ok = true
+expect return = "PASS"
+
+# status_label: not ok → "FAIL".
+call: dev_test.status_label
+arg ok = false
+expect return = "FAIL"
+
+# failure_log_path: returns path combining tmp_dir and prog name.
+# Note: run_test_cli deletes this file on a green run (unlink missing_ok=True).
+# That filesystem side-effect is not reachable through these pure plan helpers;
+# it is verified by inspection / the live `./bin/dev test` run leaving no stale
+# dev_test_test_last.txt after a green pass.
+call: dev_test.failure_log_path
+arg prog = "create"
+arg tmp_dir_str = "/repo/tmp"
+expect return = "/repo/tmp/create_test_last.txt"
+
+# all_green_line: returns the brief success message.
+call: dev_test.all_green_line
+arg prog = "create"
+expect return = "create test: all green"
+
+# failure_notice_line: returns the failure notice including the log path.
+call: dev_test.failure_notice_line
+arg log_path_str = "/repo/tmp/create_test_last.txt"
+expect return = "FAILED — see /repo/tmp/create_test_last.txt"
+
+# filter_matched_no_plans: a filter was supplied and matched nothing — True.
+# This is the bug being fixed: the AGGREGATE branch used to discard this and
+# report exit 1 with no message.
+call: dev_test.filter_matched_no_plans_json
+arg lib_filter_json = "[\"orchestrator_plan\"]"
+arg n_plans = 0
+expect return = true
+
+# filter_matched_no_plans: no filter (None) and zero plans — False. An
+# unfiltered empty run is a broken checkout, not a usage error, and must
+# NOT be reclassified as one.
+call: dev_test.filter_matched_no_plans
+arg lib_filter = None
+arg n_plans = 0
+expect return = false
+
+# filter_matched_no_plans: a filter was supplied and plans matched — False.
+call: dev_test.filter_matched_no_plans_json
+arg lib_filter_json = "[\"dev_test\"]"
+arg n_plans = 3
+expect return = false
+
+# unmatched_filter_message: given a "libs/..." value, names the offending
+# value and suggests the bare remainder ("orchestrator_plan").
+call: dev_test.unmatched_filter_message_json
+arg lib_filter_json = "[\"libs/orchestrator_plan\"]"
+arg libs_dir = "/repo/libs"
+arg mode = "quick"
+expect contains = "libs/orchestrator_plan"
+
+call: dev_test.unmatched_filter_message_json
+arg lib_filter_json = "[\"libs/orchestrator_plan\"]"
+arg libs_dir = "/repo/libs"
+arg mode = "quick"
+expect contains = "orchestrator_plan"
+
+# unmatched_filter_message: a value with no "libs/" prefix names the value,
+# and pins the exact full string so no bogus suggestion sneaks in — `expect
+# contains` has no "does not contain" form, so this stanza uses `expect
+# return =` against the exact text instead.
+call: dev_test.unmatched_filter_message_json
+arg lib_filter_json = "[\"nosuchlib\"]"
+arg libs_dir = "/repo/libs"
+arg mode = "quick"
+expect contains = "nosuchlib"
+
+call: dev_test.unmatched_filter_message_json
+arg lib_filter_json = "[\"nosuchlib\"]"
+arg libs_dir = "/repo/libs"
+arg mode = "quick"
+expect return = "no test plans matched libs=['nosuchlib'] under /repo/libs (mode=quick) — a filter names a library directory, not a path"
+
+# unmatched_filter_message: a non-string entry in the filter list (e.g. an
+# accidental int) is skipped rather than raising on .startswith — this is
+# defect 1's shape: totality here is what keeps the SOLO branch from crashing
+# on a malformed value instead of printing a message.
+call: dev_test.unmatched_filter_message_json
+arg lib_filter_json = "[\"libs/foo\", 3]"
+arg libs_dir = "/repo/libs"
+arg mode = "quick"
+expect return = "no test plans matched libs=['libs/foo', 3] under /repo/libs (mode=quick) — a filter names a library directory, not a path; try 'foo' instead"
+
+# unmatched_filter_message: an empty filter list contributes no suggestions —
+# pins totality at the other boundary (a non-list lib_filter is covered by
+# filter_matched_no_plans's own None case above; this covers the empty-list
+# shape of the same total contract).
+call: dev_test.unmatched_filter_message_json
+arg lib_filter_json = "[]"
+arg libs_dir = "/repo/libs"
+arg mode = "quick"
+expect return = "no test plans matched libs=[] under /repo/libs (mode=quick) — a filter names a library directory, not a path"
+
+# no_plans_found_message: the distinct "no filter, no plans at all" complaint
+# printed by the SOLO branch — pinning it verbatim keeps it from being
+# silently re-merged with unmatched_filter_message's "your filter matched
+# nothing" wording (defect 2).
+call: dev_test.no_plans_found_message
+arg libs_dir = "/repo/libs"
+arg mode = "quick"
+expect return = "no test plans found under /repo/libs (mode=quick)"
+
+# progress_bar: halfway through 10 plans.
+call: dev_test.progress_bar
+arg done = 5
+arg total = 10
+arg label = "running"
+expect return = "##########----------| 5/10 running"
+
+# progress_bar: fully complete (done == total).
+call: dev_test.progress_bar
+arg done = 4
+arg total = 4
+arg label = "done"
+expect return = "####################| 4/4 done"
+
+# progress_bar: zero total — no ZeroDivisionError, bar is all dashes.
+call: dev_test.progress_bar
+arg done = 0
+arg total = 0
+arg label = "empty"
+expect return = "--------------------| 0/0 empty"
+
+# progress_bar: done clamped to total when over.
+call: dev_test.progress_bar
+arg done = 99
+arg total = 3
+arg label = "overshoot"
+expect return = "####################| 3/3 overshoot"
+
+# progress_bar: custom width=10.
+call: dev_test.progress_bar
+arg done = 3
+arg total = 10
+arg label = "narrow"
+arg width = 10
+expect return = "###-------| 3/10 narrow"
+
+# _silence_logging: against a probe-installed baseline root logger, a warning
+# lands before the context, is dropped inside it, and lands again after it —
+# so restoration is observed, not just asserted on the saved fields. The probe
+# installs that baseline because this stanza itself runs nested inside
+# run_test_cli's own outer _silence_logging wrap.
+call: dev_test.silence_logging_probe
+expect return = "before=1 inside=0 after=1 restored=True"
+
+# live_test_id: derive the stable '<lib>/<module-stem>' id from a module path.
+call: dev_test.live_test_id
+arg path_str = "/repo/libs/workshop_session_driver/live_test_driver_loop.py"
+expect return = "workshop_session_driver/live_test_driver_loop"
+
+# minutes_since: whole minutes elapsed (3000s -> 50m).
+call: dev_test.minutes_since
+arg now = 4000.0
+arg last_green = 1000.0
+expect return = 50
+
+# minutes_since: negative delta clamps to 0.
+call: dev_test.minutes_since
+arg now = 1000.0
+arg last_green = 4000.0
+expect return = 0
+
+# live_report_line: a fresh skip (audible, minutes-ago shown).
+call: dev_test.live_report_line
+arg action = "skip"
+arg reason = "fresh"
+arg test_id = "foo/live_test_bar"
+arg minutes_ago = 47
+expect return = "Gated (fresh, 47m ago): foo/live_test_bar"
+
+# live_report_line: a stale/changed run.
+call: dev_test.live_report_line
+arg action = "run"
+arg reason = "relevant code changed"
+arg test_id = "foo/live_test_bar"
+arg minutes_ago = 0
+expect return = "Gated (stale/changed): running foo/live_test_bar"
+
+# live_report_line: a forced run (--force-live-tests).
+call: dev_test.live_report_line
+arg action = "run"
+arg reason = "forced"
+arg test_id = "foo/live_test_bar"
+arg minutes_ago = 0
+expect return = "Gated (forced): running foo/live_test_bar"
+
+# live_report_line: a no-creds FAIL (creds must always be present).
+call: dev_test.live_report_line
+arg action = "fail"
+arg reason = "no creds"
+arg test_id = "foo/live_test_bar"
+arg minutes_ago = 0
+expect return = "Gated FAIL (no creds): foo/live_test_bar"
+
+# live_report_line: a keyless-caller skip (must not borrow "fresh, Nm ago").
+call: dev_test.live_report_line
+arg action = "skip"
+arg reason = "no creds (keyless caller)"
+arg test_id = "foo/live_test_bar"
+arg minutes_ago = 0
+expect return = "Gated (skipped, no creds (keyless caller)): foo/live_test_bar"
+
+# next_timeout_seconds: the ceiling only ratchets up once a run consumes more
+# than two thirds of it; exactly two thirds is not "more than" and leaves it
+# unchanged, and the new ceiling is 2x the observed duration, not 2x the old
+# ceiling.
+
+# next_timeout_seconds: well under 2/3 of 900 (600) — unchanged.
+call: dev_test.next_timeout_seconds
+arg elapsed_seconds = 100.0
+arg current_timeout_seconds = 900
+expect return = 900
+
+# next_timeout_seconds: exactly 2/3 of 900 — not "more than", unchanged.
+call: dev_test.next_timeout_seconds
+arg elapsed_seconds = 600.0
+arg current_timeout_seconds = 900
+expect return = 900
+
+# next_timeout_seconds: just over the line — doubled off the observed duration.
+call: dev_test.next_timeout_seconds
+arg elapsed_seconds = 601.0
+arg current_timeout_seconds = 900
+expect return = 1202
+
+# next_timeout_seconds: fractional elapsed rounds up (ceiling, not truncation).
+call: dev_test.next_timeout_seconds
+arg elapsed_seconds = 700.5
+arg current_timeout_seconds = 900
+expect return = 1401
+
+# next_timeout_seconds: near the ceiling — doubled.
+call: dev_test.next_timeout_seconds
+arg elapsed_seconds = 850.0
+arg current_timeout_seconds = 900
+expect return = 1700
+
+# next_timeout_seconds: stability check — a second run of the same duration
+# against the new ceiling must not ratchet again.
+call: dev_test.next_timeout_seconds
+arg elapsed_seconds = 601.0
+arg current_timeout_seconds = 1202
+expect return = 1202
+
+# watchdog_timeout_message: names the elapsed time, the ceiling that tripped
+# it, the mode that ceiling governs, and — the point of the phase argument —
+# WHERE it hung. No running live test means the local domains, which is a real
+# wedge to hunt rather than a ceiling to raise.
+call: dev_test.watchdog_timeout_message
+arg elapsed_seconds = 901.0
+arg limit_seconds = 900.0
+arg mode = "full"
+arg running_live_test = ""
+expect return = "dev test: no result after 901s, over the 900s full ceiling in libs/dev_test/timeout_seconds.txt — treating this as a hang. It timed out in the LOCAL test domains, with no live-API test running, so this is a real hang: find the wedged test rather than raising the ceiling. A timed-out run never raises the ceiling itself; raise that file's full value by hand only if the local suite is legitimately slower."
+
+# watchdog_timeout_message: the same trip inside a gated live test is NOT a
+# code hang — it is a real Claude session over the network — so the message
+# names the test and says re-run.
+call: dev_test.watchdog_timeout_message
+arg elapsed_seconds = 145.0
+arg limit_seconds = 145.0
+arg mode = "quick"
+arg running_live_test = "workshop_session_driver/live_test_secondlight_permissions"
+expect return = "dev test: no result after 145s, over the 145s quick ceiling in libs/dev_test/timeout_seconds.txt — treating this as a hang. It timed out in the LIVE-API test workshop_session_driver/live_test_secondlight_permissions, which drives a real Claude session over the network — an occasional overrun there is expected and is not a code hang. Re-run it, or raise that file's quick value by hand; a timed-out run never raises it itself."
+
+# running_live_test: the marker the signal handler reads at alarm time —
+# empty before, set for the duration of the live call, cleared after.
+call: dev_test.running_live_test_probe_json
+arg test_id = "foo/live_test_bar"
+expect return = "{\"after\":\"\",\"before\":\"\",\"during\":\"foo/live_test_bar\"}"
+
+# timeout_raised_line: announces a ratcheted per-mode ceiling after a slow run.
+call: dev_test.timeout_raised_line
+arg elapsed_seconds = 601.0
+arg new_timeout_seconds = 1202
+arg mode = "quick"
+expect return = "dev test: quick run took 601s; raised the quick ceiling in libs/dev_test/timeout_seconds.txt to 1202s"
+
+# run_duration_line: reports how long a run took against the ceiling it was
+# held to, printed on every run win or lose (not just when it ratchets).
+call: dev_test.run_duration_line
+arg elapsed_seconds = 601.0
+arg limit_seconds = 900.0
+arg mode = "quick"
+expect return = "dev test: quick run took 601s (quick ceiling 900s)"
+
+# parse_timeout_file_json: good input, two well-formed lines.
+call: dev_test.parse_timeout_file_json
+arg text = "quick 75\nfull 240\n"
+expect return = "{\"full\": 240, \"quick\": 75}"
+
+# parse_timeout_file_json: a blank line between the two entries is ignored.
+call: dev_test.parse_timeout_file_json
+arg text = "quick 75\n\nfull 240\n"
+expect return = "{\"full\": 240, \"quick\": 75}"
+
+# parse_timeout_file_json failures: a bad ceiling file is fatal by design — a
+# silent default would hide the fact that the ceiling in force is no longer
+# the value anyone actually chose (see TimeoutFileUnusable).
+
+# parse_timeout_file_json: empty text defines no modes.
+call: dev_test.parse_timeout_file_json
+arg text = ""
+expect raises = "TimeoutFileUnusable"
+
+# parse_timeout_file_json: only one of the two required modes present.
+call: dev_test.parse_timeout_file_json
+arg text = "quick 75\n"
+expect raises = "TimeoutFileUnusable"
+
+# parse_timeout_file_json: an unknown mode.
+call: dev_test.parse_timeout_file_json
+arg text = "quick 75\nfull 240\nsideways 9\n"
+expect raises = "TimeoutFileUnusable"
+
+# parse_timeout_file_json: a repeated mode.
+call: dev_test.parse_timeout_file_json
+arg text = "quick 75\nquick 80\nfull 240\n"
+expect raises = "TimeoutFileUnusable"
+
+# parse_timeout_file_json: a non-integer value.
+call: dev_test.parse_timeout_file_json
+arg text = "quick abc\nfull 240\n"
+expect raises = "TimeoutFileUnusable"
+
+# parse_timeout_file_json: a zero value.
+call: dev_test.parse_timeout_file_json
+arg text = "quick 0\nfull 240\n"
+expect raises = "TimeoutFileUnusable"
+
+# parse_timeout_file_json: a negative value.
+call: dev_test.parse_timeout_file_json
+arg text = "quick -5\nfull 240\n"
+expect raises = "TimeoutFileUnusable"
+
+# parse_timeout_file_json: a line with the wrong field count.
+call: dev_test.parse_timeout_file_json
+arg text = "quick\nfull 240\n"
+expect raises = "TimeoutFileUnusable"
+
+# render_timeout_file: renders {mode: seconds} back to the file's two-line
+# text in CEILING_MODES order — the inverse of parse_timeout_file. Passed a
+# real dict via save-as/$var chaining (the plan format has no dict-literal
+# syntax to spell one directly).
+call: dev_test.parse_timeout_file
+arg text = "quick 75\nfull 240\n"
+save as: ceilings
+
+call: dev_test.render_timeout_file
+arg ceilings = $ceilings
+expect return = "quick 75\nfull 240\n"
+
+# ceiling_mode_from_argv_json: JSON-string wrapper, since the plan format's
+# `arg` values are scalars (int/float/bool/none/string/$var) or a 2-D numeric
+# block — there is no list-of-strings literal to spell `argv` directly.
+
+# ceiling_mode_from_argv_json: no flags -> quick (the default).
+call: dev_test.ceiling_mode_from_argv_json
+arg argv_json = "[]"
+expect return = "quick"
+
+# ceiling_mode_from_argv_json: explicit --quick.
+call: dev_test.ceiling_mode_from_argv_json
+arg argv_json = "[\"--quick\"]"
+expect return = "quick"
+
+# ceiling_mode_from_argv_json: explicit --full.
+call: dev_test.ceiling_mode_from_argv_json
+arg argv_json = "[\"--full\"]"
+expect return = "full"
+
+# ceiling_mode_from_argv_json: --learn takes the roomier full ceiling.
+call: dev_test.ceiling_mode_from_argv_json
+arg argv_json = "[\"--learn\", \"dev_test\"]"
+expect return = "full"
+
+# ceiling_mode_from_argv_json: --full alongside a lib name.
+call: dev_test.ceiling_mode_from_argv_json
+arg argv_json = "[\"--full\", \"pluck_io\"]"
+expect return = "full"
+
+# ceiling_mode_from_argv_json: a bare lib name with no mode flag -> quick.
+call: dev_test.ceiling_mode_from_argv_json
+arg argv_json = "[\"pluck_io\"]"
+expect return = "quick"

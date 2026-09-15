@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# green — one allow-listed command to verify the tree is "green".
+#
+#   bin/green [--full] [--no-live-tests|--force-live-tests] [libs...]
+#
+# --no-live-tests and --force-live-tests both ride the existing "$@"
+# pass-through below to ./bin/dev test — no code change needed here.
+#
+# bin/green always passes --skip-live-tests-if-keyless, so a machine with no
+# API key skips the gated-live tier as a pass instead of going red; an
+# explicit --force-live-tests still overrides and fails without credentials.
+#
+# 1. Print the diff since the last green checkpoint (git diff HEAD) + untracked files.
+# 2. Run ./bin/dev test (quick by default; --full and lib filters are passed through).
+# 3. Print RC=<n>.
+# 4. If RC != 0, print tmp/dev_test_last.txt inline and exit with that code.
+# 5. If RC == 0, commit on the current branch (only if the tree is dirty) so the
+#    NEXT run's `git diff HEAD` shows just the changes since this green. Design
+#    and code land as up to two separate commits, in that order — the decision,
+#    then the code: anything dirty under design/ is committed alone as
+#    "design: green checkpoint", then anything still dirty is committed as
+#    "green checkpoint".
+set -uo pipefail   # deliberately NOT -e: we must survive a red test and still report RC.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$root"
+
+# Serialise the gate — see bin/gate_lock.sh for what races without it.
+. "$root/bin/gate_lock.sh"
+gate_lock_acquire "$root"
+
+echo "=== diff since last green (git diff HEAD) ==="
+git --no-pager diff HEAD
+untracked="$(git ls-files --others --exclude-standard)"
+if [ -n "$untracked" ]; then
+  echo "--- untracked (not shown by diff) ---"
+  echo "$untracked"
+fi
+
+echo "=== ./bin/dev test --skip-live-tests-if-keyless $* ==="
+./bin/dev test --skip-live-tests-if-keyless "$@"
+rc=$?
+echo "RC=$rc"
+
+if [ "$rc" -ne 0 ]; then
+  log="$root/tmp/dev_test_last.txt"
+  if [ -f "$log" ]; then
+    echo "=== tmp/dev_test_last.txt (failure log) ==="
+    cat "$log"
+  fi
+  exit "$rc"
+fi
+
+committed_something=0
+
+if [ -n "$(git status --porcelain -- design)" ]; then
+  git add --ignore-errors -A -- design || true
+  git commit -q -m "design: green checkpoint"
+  echo "green: design commit $(git rev-parse --short HEAD)"
+  committed_something=1
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+  git add --ignore-errors -A || true
+  git commit -q -m "green checkpoint"
+  echo "green: checkpoint committed at $(git rev-parse --short HEAD)"
+  committed_something=1
+fi
+
+if [ "$committed_something" -eq 0 ]; then
+  echo "green: tree already at last green checkpoint (nothing to commit)"
+fi

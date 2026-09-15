@@ -1,0 +1,13 @@
+# demo: stub contract for future_thing
+#
+# When a real implementation lands, this plan stays. The new
+# code must keep `future_thing(...) == 0` for these inputs (and
+# whatever else this file grows to cover) — that is the contract
+# the stub committed to.
+
+call: demo.future_thing
+expect return = 0
+
+call: demo.future_thing
+arg n = 7
+expect return = 0

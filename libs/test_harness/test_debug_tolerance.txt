@@ -1,0 +1,78 @@
+# Debug: replicate test_primary.txt (normalization section) then check int_spelled error message.
+
+call: test_harness.run_text
+arg text = "call: demo.add\narg a = 2\narg b = 3\nexpect return = 5"
+save as: passing_result
+
+call: test_harness.run_text
+arg text = "call: demo.add\narg a = 2\narg b = 3\nexpect return = 99"
+save as: failing_result
+
+call: test_harness.run_text
+arg text = "call: demo.always_raises\nexpect raises = \"ValueError\""
+save as: raises_result
+
+call: test_harness.run_text
+arg text = "call: demo.always_raises"
+save as: unhandled_error
+
+call: test_harness.run_text
+arg text = "not a call line"
+save as: bad_parse
+
+call: test_harness.run_text
+arg text = "call: demo.future_thing\nexpect return = 0"
+save as: stubbed_result
+
+call: test_harness.result_stubbed_calls
+arg result = $stubbed_result
+save as: stubbed_calls_list
+
+call: test_harness.discover_plans
+arg libs_dir = "libs"
+arg mode = "quick"
+
+call: test_harness.check_stub_coverage
+arg libs_dir = "libs"
+save as: coverage
+
+call: test_harness.run_text
+arg text = "call: demo.identity\narg x = 7\nexpect return = 7"
+save as: learn_baseline
+
+call: test_harness.run_text
+arg text = "call: demo.labeled_count\nnormalize: count: \\d+ => count: <n>\nexpect return = \"count: <n>\""
+save as: normalize_pass
+
+call: test_harness.run_text
+arg text = "call: demo.labeled_count\nexpect return = \"count: <n>\""
+save as: normalize_absent
+
+call: test_harness.learned_text
+arg text = "call: demo.labeled_count\nnormalize: count: \\d+ => count: <n>\nexpect return = \"wrong\""
+save as: learned_plan
+
+call: test_harness.run_text
+arg text = $learned_plan
+save as: relearned_result
+
+# Now the float tolerance test (int_spelled) - get its message.
+call: test_harness.run_text
+arg text = "call: demo.add\narg a = 1\narg b = 0.0000001\nexpect return = 1.0"
+save as: float_spelled_pass
+
+call: test_harness.result_status
+arg result = $float_spelled_pass
+expect return = "pass"
+
+call: test_harness.run_text
+arg text = "call: demo.add\narg a = 1\narg b = 0.0000001\nexpect return = 1"
+save as: int_spelled_fail
+
+call: test_harness.result_first_message
+arg result = $int_spelled_fail
+save as: error_message
+
+call: test_harness.result_status
+arg result = $int_spelled_fail
+expect return = "fail"

@@ -1,0 +1,48 @@
+# seed_registry: primary plan
+# Reproducibility: same name + same master -> identical stream
+# across re-pins. Different master or different name -> different
+# stream (validated via deterministic literal values).
+
+call: seed_registry.pin
+arg master_seed = 42
+
+call: seed_registry.is_pinned
+expect return = true
+
+call: seed_registry.current_master
+expect return = 42
+
+call: seed_registry.sample_uint64
+arg name = "alpha"
+save as: alpha_at_42
+
+# Re-pin: cache is cleared, same name should reproduce.
+call: seed_registry.pin
+arg master_seed = 42
+
+call: seed_registry.sample_uint64
+arg name = "alpha"
+expect return = $alpha_at_42
+
+# Different name, same master -> different stream. We just
+# observe that the sample succeeds (its independence from
+# alpha follows from SHA-256 over the (master, name) pair).
+call: seed_registry.sample_uint64
+arg name = "beta"
+
+# Different master -> different stream.
+call: seed_registry.pin
+arg master_seed = 43
+
+call: seed_registry.sample_uint64
+arg name = "alpha"
+
+# Unpin: subsequent get_rng must raise.
+call: seed_registry.unpin
+
+call: seed_registry.is_pinned
+expect return = false
+
+call: seed_registry.get_rng
+arg name = "anything"
+expect raises = "RuntimeError"

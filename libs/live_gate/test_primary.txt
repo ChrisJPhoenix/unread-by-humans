@@ -1,0 +1,149 @@
+# live_gate: pure gate decision + narrow fingerprint + green-cache
+#
+# See design/testing.md "Gated live tests" for the contract this pins down.
+
+# --- gate_decision: no creds -> FAIL (creds must always be present) -------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 1010.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = false
+expect return = "{\"action\":\"fail\",\"reason\":\"no creds\"}"
+
+# --- gate_decision: no cache entry -> run ----------------------------------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = false
+arg last_green = 0.0
+arg now = 1000.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = true
+expect return = "{\"action\":\"run\",\"reason\":\"no cache\"}"
+
+# --- gate_decision: clock skew (now < last_green) -> run -------------------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 2000.0
+arg now = 1000.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = true
+expect return = "{\"action\":\"run\",\"reason\":\"clock skew\"}"
+
+# --- gate_decision: fingerprint differs -> run -----------------------------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 1010.0
+arg stored_fp = "abc"
+arg current_fp = "xyz"
+arg creds = true
+expect return = "{\"action\":\"run\",\"reason\":\"relevant code changed\"}"
+
+# --- gate_decision: ttl lapsed (delta == TTL exactly), same fp -> run ------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 15400.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = true
+expect return = "{\"action\":\"run\",\"reason\":\"ttl lapsed\"}"
+
+# --- gate_decision: fresh (delta well under TTL), same fp, creds -> skip ---
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 1060.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = true
+expect return = "{\"action\":\"skip\",\"reason\":\"fresh\"}"
+
+# --- fingerprint_of_pairs: reordering the same pairs -> same digest --------
+# Same two pairs, opposite stanza order; the digest must not depend on
+# caller-supplied order.
+
+call: live_gate.gate.fingerprint_pairs_probe_json
+arg pairs_json = "[[\"b.txt\", \"beta\"], [\"a.txt\", \"alpha\"]]"
+save as: order_a
+
+call: live_gate.gate.fingerprint_pairs_probe_json
+arg pairs_json = "[[\"a.txt\", \"alpha\"], [\"b.txt\", \"beta\"]]"
+expect return = $order_a
+
+# --- fingerprint_of_pairs: a content change -> a different digest ----------
+# Each stanza pins its own exact digest (filled by --learn, then manually
+# checked to differ from the other): base content vs. one byte changed.
+
+call: live_gate.gate.fingerprint_pairs_probe_json
+arg pairs_json = "[[\"a.txt\", \"alpha\"], [\"b.txt\", \"beta\"]]"
+expect return = "{\"digest\":\"81443c1ca2bf565a8bc6c2827214b6e2577469e9086eff15de146e2ddcba4a5e\"}"
+
+call: live_gate.gate.fingerprint_pairs_probe_json
+arg pairs_json = "[[\"a.txt\", \"alpha\"], [\"b.txt\", \"beta-CHANGED\"]]"
+expect return = "{\"digest\":\"0e6ba4f97aa38c32ff91284e89bc3b07e4bdd70e88ccd6c17758b179be0c8553\"}"
+
+# --- cache round-trip -------------------------------------------------------
+
+call: live_gate.gate.cache_roundtrip_probe_json
+arg now = 12345.0
+arg fingerprint = "deadbeef"
+expect return = "{\"round_trips\":true}"
+
+# --- gate_decision: force overrides a fresh cache -> run (forced) ---------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 1060.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = true
+arg force = true
+expect return = "{\"action\":\"run\",\"reason\":\"forced\"}"
+
+# --- gate_decision: force does NOT override absent creds -------------------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 1010.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = false
+arg force = true
+expect return = "{\"action\":\"fail\",\"reason\":\"no creds\"}"
+
+# --- gate_decision: keyless caller opts into skip-as-pass ------------------
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 1010.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = false
+arg skip_if_keyless = true
+expect return = "{\"action\":\"skip\",\"reason\":\"no creds (keyless caller)\"}"
+
+# --- gate_decision: explicit force beats skip_if_keyless -> still fail -----
+
+call: live_gate.gate.gate_decision_probe_json
+arg has_entry = true
+arg last_green = 1000.0
+arg now = 1010.0
+arg stored_fp = "abc"
+arg current_fp = "abc"
+arg creds = false
+arg force = true
+arg skip_if_keyless = true
+expect return = "{\"action\":\"fail\",\"reason\":\"no creds\"}"

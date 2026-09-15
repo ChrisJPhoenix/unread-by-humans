@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+# `dev test` contends for the same shared state bin/green does, so a worker
+# self-verifying with a bare `bin/dev test` must take the same lock. `exec` is
+# dropped here so the lock's EXIT trap can fire; bin/green exports
+# GATE_LOCK_HELD, so its nested `bin/dev test` is a no-op re-entry.
+if [ "${1:-}" = "test" ]; then
+  . "$REPO_ROOT/bin/gate_lock.sh"
+  gate_lock_acquire "$REPO_ROOT"
+fi
+
+"$REPO_ROOT/venv/bin/python3" -m libs.dev_test "$@"

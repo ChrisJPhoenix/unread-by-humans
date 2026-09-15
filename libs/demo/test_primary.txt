@@ -1,0 +1,18 @@
+# demo: primary plan
+# Verifies the non-stub functions (`identity`, `add`) behave.
+
+call: demo.identity
+arg x = 5
+expect return = 5
+
+call: demo.identity
+arg x = "hello"
+expect return = "hello"
+
+call: demo.add
+arg a = 2
+arg b = 3
+expect return = 5
+
+call: demo.always_raises
+expect raises = "ValueError"
