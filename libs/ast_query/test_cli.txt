@@ -1,0 +1,595 @@
+# ast_query: CLI test plan (full mode only)
+# Tests run_cli_str against fixtures for exact formatted-string output.
+# fixture line numbers: helper=5, greet=9, Greeter=13, __init__=14, speak=17
+
+# --- def subcommand ---
+
+call: ast_query.run_cli_str
+arg cmdline = "def helper libs/ast_query/fixtures/sample.py"
+expect return = "libs/ast_query/fixtures/sample.py:5:0\tfunction helper"
+
+call: ast_query.run_cli_str
+arg cmdline = "def Greeter libs/ast_query/fixtures/sample.py"
+expect return = "libs/ast_query/fixtures/sample.py:13:0\tclass Greeter"
+
+call: ast_query.run_cli_str
+arg cmdline = "def __init__ libs/ast_query/fixtures/sample.py"
+expect return = "libs/ast_query/fixtures/sample.py:14:4\tfunction __init__"
+
+# --- refs subcommand ---
+# helper(name) is called on line 10 at col 11 (4 spaces + "return " = 11 chars)
+
+call: ast_query.run_cli_str
+arg cmdline = "refs helper libs/ast_query/fixtures/sample.py"
+expect return = "libs/ast_query/fixtures/sample.py:10:11\thelper"
+
+# --- outline subcommand ---
+# source order; end_line from ast: helper=6, greet=10, Greeter=18, __init__=15, speak=18
+
+call: ast_query.run_cli_str
+arg cmdline = "outline libs/ast_query/fixtures/sample.py"
+expect return = "libs/ast_query/fixtures/sample.py:5:6\tfunction helper\nlibs/ast_query/fixtures/sample.py:9:10\tfunction greet\nlibs/ast_query/fixtures/sample.py:13:18\tclass Greeter\nlibs/ast_query/fixtures/sample.py:14:15\tfunction __init__\nlibs/ast_query/fixtures/sample.py:17:18\tfunction speak"
+
+# --- def nonexistent ---
+
+call: ast_query.run_cli_str
+arg cmdline = "def nonexistent libs/ast_query/fixtures/sample.py"
+expect return = ""
+
+# def -r recurses into a directory, finding defs in files at every level.
+call: ast_query.run_cli_str
+arg cmdline = "def -r helper libs/ast_query/fixtures"
+expect contains = "libs/ast_query/fixtures/sample.py:5:0\tfunction helper"
+
+# def with a bare directory and no -r: the dir is dropped (notice->stderr); stdout "".
+call: ast_query.run_cli_str
+arg cmdline = "def helper libs/ast_query/fixtures"
+expect return = ""
+
+# def down an empty pipe searches nothing (NOT a whole-cwd walk).
+call: ast_query.run_cli_str
+arg cmdline = "grep ZZZ_NO_SUCH_TOKEN libs/ast_query/fixtures/sample.py ++ def helper"
+expect return = ""
+
+# refs -r recurses into a directory, finding references in files at every level.
+call: ast_query.run_cli_str
+arg cmdline = "refs -r helper libs/ast_query/fixtures"
+expect contains = "libs/ast_query/fixtures/sample.py:10:11\thelper"
+
+# refs with a bare directory and no -r: the dir is dropped (notice->stderr); stdout "".
+call: ast_query.run_cli_str
+arg cmdline = "refs helper libs/ast_query/fixtures"
+expect return = ""
+
+# outline -r recurses into a directory.
+call: ast_query.run_cli_str
+arg cmdline = "outline -r libs/ast_query/fixtures"
+expect contains = "libs/ast_query/fixtures/sample.py:5:6\tfunction helper"
+
+# outline with a bare directory and no -r: dropped (notice->stderr); stdout "".
+call: ast_query.run_cli_str
+arg cmdline = "outline libs/ast_query/fixtures"
+expect return = ""
+
+# pattern -r recurses into a directory (js pattern only matches JS files
+# among the mixed-extension walk; sample.js's helper function is found).
+call: ast_query.run_cli_str
+arg cmdline = "pattern -r js \"function $NAME($$$) { $$$ }\" libs/ast_query/fixtures"
+expect contains = "libs/ast_query/fixtures/sample.js:5:1\tfunction helper(x) {"
+
+# pattern with a bare directory and no -r: dropped (notice->stderr); stdout "".
+call: ast_query.run_cli_str
+arg cmdline = "pattern js \"function $NAME($$$) { $$$ }\" libs/ast_query/fixtures"
+expect return = ""
+
+# --- pattern subcommand (JS, full mode only — requires ast-grep) ---
+# Two hits: function helper at line 5, function greet at line 9.
+# ast-grep reports 0-based col; search_pattern adds +1, so col=1 for col-0 functions.
+# text = full matched source including body (newlines embedded in text field).
+
+call: ast_query.run_cli_str
+arg cmdline = "pattern js \"function $NAME($$$) { $$$ }\" libs/ast_query/fixtures/sample.js"
+normalize: function helper\(x\) \{[\s\S]*?\} => <helper-body>
+normalize: function greet\(name\) \{[\s\S]*?\} => <greet-body>
+expect return = "libs/ast_query/fixtures/sample.js:5:1\t<helper-body>\nlibs/ast_query/fixtures/sample.js:9:1\t<greet-body>"
+
+# --- grep subcommand ---
+
+call: ast_query.run_cli_str
+arg cmdline = "grep TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+call: ast_query.run_cli_str
+arg cmdline = "grep --in comments TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment"
+
+call: ast_query.run_cli_str
+arg cmdline = "grep --in strings TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\""
+
+call: ast_query.run_cli_str
+arg cmdline = "grep --in code TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+call: ast_query.run_cli_str
+arg cmdline = "grep --in comments TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = ""
+
+call: ast_query.run_cli_str
+arg cmdline = "grep TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = "libs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+call: ast_query.run_cli_str
+arg cmdline = "grep -i todo libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+# -n / --line-number is accepted as a no-op (line numbers are always printed).
+call: ast_query.run_cli_str
+arg cmdline = "grep -n TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+# --- echo subcommand ---
+
+call: ast_query.run_cli_str
+arg cmdline = "echo a b c"
+expect return = "a b c"
+
+call: ast_query.run_cli_str
+arg cmdline = "echo === {} ==="
+expect return = "=== {} ==="
+
+# --- find subcommand ---
+
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query/fixtures --ext .md"
+expect return = "libs/ast_query/fixtures/grep_sample.md"
+
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query/fixtures --ext .py"
+expect return = "libs/ast_query/fixtures/grep_sample.py\nlibs/ast_query/fixtures/sample.py"
+
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query/fixtures --name grep_sample"
+expect return = "libs/ast_query/fixtures/grep_sample.md\nlibs/ast_query/fixtures/grep_sample.py"
+
+# --- seq subcommand ---
+# Concatenates non-empty outputs: echo then grep hit, joined by newline.
+
+call: ast_query.run_cli_str
+arg cmdline = "seq 'echo ---' 'grep TODO libs/ast_query/fixtures/grep_sample.md'"
+expect return = "---\nlibs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+# --- each subcommand: --files (explicit file list, file-major) ---
+# grep_sample.py has 3 TODO hits (lines 8/10/12); grep_sample.md has 1 (line 3).
+# Order: banner then grep hits for .py, then banner then grep hit for .md.
+
+call: ast_query.run_cli_str
+arg cmdline = "each 'echo === {} ===' 'grep TODO {}' --files libs/ast_query/fixtures/grep_sample.py libs/ast_query/fixtures/grep_sample.md"
+expect return = "=== libs/ast_query/fixtures/grep_sample.py ===\nlibs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0\n=== libs/ast_query/fixtures/grep_sample.md ===\nlibs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+# --- each subcommand: --ext/--root (find_files selects the file) ---
+# find_files(["libs/ast_query/fixtures"], [".md"], None) returns exactly grep_sample.md.
+
+call: ast_query.run_cli_str
+arg cmdline = "each 'grep TODO {}' --ext .md --root libs/ast_query/fixtures"
+expect return = "libs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+# --- extensionless file: all-files walk and UTF-8 read-guard ---
+
+# find returns extensionless files (proves _walk_all_files via find's own walker).
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query/fixtures --name noext_sample"
+expect return = "libs/ast_query/fixtures/noext_sample"
+
+# grep reads an extensionless UTF-8 file when given an explicit path.
+call: ast_query.run_cli_str
+arg cmdline = "grep TODO libs/ast_query/fixtures/noext_sample"
+expect return = "libs/ast_query/fixtures/noext_sample:2:3\t# TODO extensionless fixture"
+
+# grep with a bare DIRECTORY and no -r: the notice goes to stderr; stdout is "".
+call: ast_query.run_cli_str
+arg cmdline = "grep TODO libs/ast_query/fixtures"
+expect return = ""
+
+# grep -r recurses into a directory arg, reading files at every level
+# (grep_sample.py has TODO hits; the extensionless fixture also has one).
+call: ast_query.run_cli_str
+arg cmdline = "grep -r TODO libs/ast_query/fixtures"
+expect contains = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment"
+
+call: ast_query.run_cli_str
+arg cmdline = "grep -r TODO libs/ast_query/fixtures"
+expect contains = "libs/ast_query/fixtures/noext_sample:2:3\t# TODO extensionless fixture"
+
+# grep with no pipe and no path: guidance goes to stderr; stdout is "".
+call: ast_query.run_cli_str
+arg cmdline = "grep TODO"
+expect return = ""
+
+# An empty upstream stream piped into grep yields the empty stream (no match),
+# NOT a fallback whole-cwd walk. The left grep matches nothing, so the right
+# grep receives "" and must return "".
+call: ast_query.run_cli_str
+arg cmdline = "grep ZZZ_NO_SUCH_TOKEN libs/ast_query/fixtures/grep_sample.md ++ grep TODO"
+expect return = ""
+
+# --- --head / -H global flag ---
+
+# --head 2: first two grep hits (lines 8 and 10)
+call: ast_query.run_cli_str
+arg cmdline = "--head 2 grep TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\""
+
+# --head 1: only the line-8 hit
+call: ast_query.run_cli_str
+arg cmdline = "--head 1 grep TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment"
+
+# --head 0: empty output
+call: ast_query.run_cli_str
+arg cmdline = "--head 0 grep TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = ""
+
+# --head 2 on seq: first two lines of joined output (a and b)
+call: ast_query.run_cli_str
+arg cmdline = "--head 2 seq 'echo a' 'echo b' 'echo c'"
+expect return = "a\nb"
+
+# --head 2 on outline: first two definitions in source order (helper and greet)
+call: ast_query.run_cli_str
+arg cmdline = "--head 2 outline libs/ast_query/fixtures/sample.py"
+expect return = "libs/ast_query/fixtures/sample.py:5:6\tfunction helper\nlibs/ast_query/fixtures/sample.py:9:10\tfunction greet"
+
+# --head 1 on find: first matching file (grep_sample.py sorts before sample.py)
+call: ast_query.run_cli_str
+arg cmdline = "--head 1 find libs/ast_query/fixtures --ext .py"
+expect return = "libs/ast_query/fixtures/grep_sample.py"
+
+# --- git subcommand ---
+
+# rev-parse --is-inside-work-tree returns "true" in a git work tree.
+call: ast_query.run_cli_str
+arg cmdline = "git rev-parse --is-inside-work-tree"
+expect return = "true"
+
+# Two flags: both outputs on separate lines.
+call: ast_query.run_cli_str
+arg cmdline = "git rev-parse --is-inside-work-tree --is-bare-repository"
+expect return = "true\nfalse"
+
+# Global -H 1 composes with git: limits to the first line.
+call: ast_query.run_cli_str
+arg cmdline = "-H 1 git rev-parse --is-inside-work-tree --is-bare-repository"
+expect return = "true"
+
+# Mutating subcommand is rejected.
+call: ast_query.run_cli_str
+arg cmdline = "git commit -m x"
+expect return = "git: 'commit' is not an allowed read-only subcommand"
+
+# -C token is rejected (leading dash, not in allowlist).
+call: ast_query.run_cli_str
+arg cmdline = "git -C /tmp status"
+expect return = "git: '-C' is not an allowed read-only subcommand"
+
+# `branch` is excluded deliberately, not an oversight: the allowlist is
+# subcommand-granular, so admitting `branch` would also admit
+# `git branch -d`/`-m`. `git worktree` is excluded for the same reason
+# (`worktree add`/`remove`/`prune`). See design/look.md §9.5.
+call: ast_query.run_cli_str
+arg cmdline = "git branch"
+expect return = "git: 'branch' is not an allowed read-only subcommand"
+
+# Missing subcommand returns the missing-subcommand message.
+call: ast_query.run_cli_str
+arg cmdline = "git"
+expect return = "git: missing subcommand"
+
+# git composes inside seq: echo then git, joined by newline.
+call: ast_query.run_cli_str
+arg cmdline = "seq 'echo === STATE ===' 'git rev-parse --is-inside-work-tree'"
+expect return = "=== STATE ===\ntrue"
+
+# -H before git inside a seq string: inner command trimmed to 1 line, then TAIL appended.
+# rev-parse returns "true\nfalse"; -H 1 trims to "true"; seq appends echo output.
+call: ast_query.run_cli_str
+arg cmdline = "seq '-H 1 git rev-parse --is-inside-work-tree --is-bare-repository' 'echo TAIL'"
+expect return = "true\nTAIL"
+
+# --- cat subcommand ---
+
+# whole file: numbered, all 12 lines; check line-1 and line-12 markers
+call: ast_query.run_cli_str
+arg cmdline = "cat libs/ast_query/fixtures/grep_sample.py"
+expect contains = "     1\t# Fixture for libs/ast_query grep tests."
+expect contains = "    12\tTODO_count = 0"
+
+# --lines 2-4: source lines 2, 3, 4 (numbered)
+call: ast_query.run_cli_str
+arg cmdline = "cat --lines 2-4 libs/ast_query/fixtures/grep_sample.py"
+expect contains = "     2\t#   comment:  line 8, col 3"
+expect contains = "     4\t#   code:     line 12, col 1"
+
+# --around 5:1: lines 4, 5, 6 centred on line 5 with radius 1
+call: ast_query.run_cli_str
+arg cmdline = "cat --around 5:1 libs/ast_query/fixtures/grep_sample.py"
+expect contains = "     4\t#   code:     line 12, col 1"
+expect contains = "     6\t# Lines 5-6 are padding so token lines are easy to count."
+
+# --no-number: raw lines, no "   N\t" prefix
+call: ast_query.run_cli_str
+arg cmdline = "cat --no-number libs/ast_query/fixtures/grep_sample.py"
+expect contains = "# Fixture for libs/ast_query grep tests."
+expect contains = "TODO_count = 0"
+
+# two paths: both ==> banners appear
+call: ast_query.run_cli_str
+arg cmdline = "cat libs/ast_query/fixtures/grep_sample.py libs/ast_query/fixtures/grep_sample.md"
+expect contains = "==> libs/ast_query/fixtures/grep_sample.py <=="
+expect contains = "==> libs/ast_query/fixtures/grep_sample.md <=="
+expect contains = "TODO_count = 0"
+expect contains = "TODO finish this."
+
+# missing file: skipped gracefully, empty output
+call: ast_query.run_cli_str
+arg cmdline = "cat libs/ast_query/fixtures/no_such_file.py"
+expect return = ""
+
+# --- ls subcommand ---
+
+# Plain directory: contains sample.py (no dotfiles by default).
+# The harness has no negative-assertion directive; dotfile absence is verified
+# indirectly: the exact return value matches the known non-dot entries only.
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures"
+expect return = "grep_sample.md\ngrep_sample.py\nnoext_sample\nsample.js\nsample.py"
+
+# -a shows the .hidden dotfile fixture along with all other entries.
+call: ast_query.run_cli_str
+arg cmdline = "ls -a libs/ast_query/fixtures"
+expect contains = ".hidden"
+
+# Recursive with glob: *.py under fixtures returns .py files (contains sample.py).
+call: ast_query.run_cli_str
+arg cmdline = "ls -r '*.py' libs/ast_query/fixtures"
+expect contains = "sample.py"
+
+# -l long format: kind + size + name columns; sample.py row contains "f " and "sample.py".
+call: ast_query.run_cli_str
+arg cmdline = "ls -l libs/ast_query/fixtures"
+expect contains = "f "
+expect contains = "sample.py"
+
+# --- head subcommand ---
+
+# head 3: first 3 raw lines of grep_sample.py (no line-number prefix)
+call: ast_query.run_cli_str
+arg cmdline = "head 3 libs/ast_query/fixtures/grep_sample.py"
+expect return = "# Fixture for libs/ast_query grep tests. Known 1-based positions of the marker token:\n#   comment:  line 8, col 3  (inside the # comment, after \"# \")\n#   string:   line 10, col 15 (inside the string literal)"
+
+# head 3: raw lines must NOT carry line-number prefixes (no "   N\t" pattern)
+call: ast_query.run_cli_str
+arg cmdline = "head 3 libs/ast_query/fixtures/grep_sample.py"
+expect contains = "# Fixture for libs/ast_query grep tests."
+
+# head multi-file: both ==> banners appear when two paths are given
+call: ast_query.run_cli_str
+arg cmdline = "head 1 libs/ast_query/fixtures/grep_sample.py libs/ast_query/fixtures/grep_sample.md"
+expect contains = "==> libs/ast_query/fixtures/grep_sample.py <=="
+expect contains = "==> libs/ast_query/fixtures/grep_sample.md <=="
+
+# head -3: the unix spelling of the count — identical to `head 3`, NOT "all but the last 3"
+call: ast_query.run_cli_str
+arg cmdline = "head -3 libs/ast_query/fixtures/grep_sample.py"
+expect return = "# Fixture for libs/ast_query grep tests. Known 1-based positions of the marker token:\n#   comment:  line 8, col 3  (inside the # comment, after \"# \")\n#   string:   line 10, col 15 (inside the string literal)"
+
+# --- wc subcommand ---
+
+# wc -l: output contains the filename (robust to platform whitespace differences)
+call: ast_query.run_cli_str
+arg cmdline = "wc -l libs/ast_query/fixtures/grep_sample.py"
+expect contains = "grep_sample.py"
+
+# wc -l: output contains the line count (grep_sample.py has 12 lines)
+call: ast_query.run_cli_str
+arg cmdline = "wc -l libs/ast_query/fixtures/grep_sample.py"
+expect contains = "12"
+
+# --- global --log / --log-repeat flags ---
+
+# --log warning (a recognised, no-op-here value): the data channel is
+# unchanged from the un-flagged grep TODO result — nothing logs a warning
+# for this command, so no second section appears.
+call: ast_query.run_cli_str
+arg cmdline = "--log warning grep TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = "libs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+# --log info: same reasoning — nothing logs at info yet, so raising the
+# threshold must not disturb the data channel.
+call: ast_query.run_cli_str
+arg cmdline = "--log info grep TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = "libs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+# --log-repeat each: with an empty log, the repeat mode has nothing to
+# collapse or expand, so the data channel is unchanged.
+call: ast_query.run_cli_str
+arg cmdline = "--log-repeat each grep TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = "libs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+# Composing -H with --log, in either order: proves the two globals are
+# peeled independently and neither disturbs the other's effect on data.
+call: ast_query.run_cli_str
+arg cmdline = "-H 1 --log info grep TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = "libs/ast_query/fixtures/grep_sample.md:3:1\tTODO finish this."
+
+# An unrecognised --log value logs an error instead of being applied; ctx
+# keeps its default threshold, so the error itself always renders, and the
+# data channel is suppressed entirely (design/look.md §9.1.2).
+call: ast_query.run_cli_str
+arg cmdline = "--log bogus grep TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = "**ERROR** --log: unknown value 'bogus' (expected one of: error, warning, info) **ERROR**"
+
+# Same story for an unrecognised --log-repeat value.
+call: ast_query.run_cli_str
+arg cmdline = "--log-repeat bogus grep TODO libs/ast_query/fixtures/grep_sample.md"
+expect return = "**ERROR** --log-repeat: unknown value 'bogus' (expected one of: collapse, each) **ERROR**"
+
+# --- --exclude on the searching subcommands (def/refs/outline/pattern/grep) ---
+
+# def -r control: helper is found in fixtures/sample.py without --exclude.
+call: ast_query.run_cli_str
+arg cmdline = "def -r helper libs/ast_query"
+expect contains = "libs/ast_query/fixtures/sample.py:5:0\tfunction helper"
+
+# def -r --exclude fixtures: the whole fixtures/ subtree is pruned from the
+# walk (never descended into), so the sample.py hit disappears entirely.
+call: ast_query.run_cli_str
+arg cmdline = "def -r helper libs/ast_query --exclude fixtures"
+expect return = ""
+
+# An explicitly-named excluded path is rejected too (like GNU grep), even
+# though outline's single PATH operand isn't a directory walk.
+call: ast_query.run_cli_str
+arg cmdline = "outline libs/ast_query/fixtures/sample.py --exclude sample.py"
+expect return = ""
+
+# grep -r --exclude "*.md": a full-path glob prunes grep_sample.md; the three
+# grep_sample.py hits (lines 8/10/12) and the extensionless noext_sample hit
+# remain, since neither matches *.md.
+call: ast_query.run_cli_str
+arg cmdline = "grep -r TODO libs/ast_query/fixtures --exclude \"*.md\""
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0\nlibs/ast_query/fixtures/noext_sample:2:3\t# TODO extensionless fixture"
+
+# comma-separated form: --exclude a,b excludes both grep_sample.md and
+# noext_sample in one flag, leaving only the grep_sample.py hits.
+call: ast_query.run_cli_str
+arg cmdline = "grep -r TODO libs/ast_query/fixtures --exclude grep_sample.md,noext_sample"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+# repeated-flag form is equivalent to the comma form directly above.
+call: ast_query.run_cli_str
+arg cmdline = "grep -r TODO libs/ast_query/fixtures --exclude grep_sample.md --exclude noext_sample"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+# trailing slash is tolerated: --exclude fixtures/ behaves exactly like
+# --exclude fixtures (compare to the def -r --exclude fixtures stanza above).
+call: ast_query.run_cli_str
+arg cmdline = "def -r helper libs/ast_query --exclude fixtures/"
+expect return = ""
+
+# refs -r --exclude fixtures: the fixtures/ subtree is pruned, so the
+# helper reference in sample.py disappears entirely.
+call: ast_query.run_cli_str
+arg cmdline = "refs -r helper libs/ast_query --exclude fixtures"
+expect return = ""
+
+# pattern -r --exclude fixtures: the un-excluded "pattern -r js ... fixtures"
+# stanza earlier in this file proves sample.js contributes two hits;
+# excluding the whole fixtures/ directory prunes both.
+call: ast_query.run_cli_str
+arg cmdline = "pattern -r js \"function $NAME($$$) { $$$ }\" libs/ast_query/fixtures --exclude fixtures"
+expect return = ""
+
+# --- --exclude on the walking source subcommands (ls/find/each) ---
+
+# find control: no --exclude, the fixtures/ subtree contributes its .py files.
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query --ext .py"
+expect return = "libs/ast_query/__init__.py\nlibs/ast_query/__main__.py\nlibs/ast_query/ast_query.py\nlibs/ast_query/fixtures/grep_sample.py\nlibs/ast_query/fixtures/sample.py\nlibs/ast_query/gap_fixtures/broken_syntax.py\nlibs/ast_query/gap_fixtures/const_sample.py"
+
+# find --exclude fixtures: the whole fixtures/ subtree is pruned (never
+# descended into), so its two .py files disappear while gap_fixtures/
+# (whose name doesn't match the bare "fixtures" component) is untouched.
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query --ext .py --exclude fixtures"
+expect return = "libs/ast_query/__init__.py\nlibs/ast_query/__main__.py\nlibs/ast_query/ast_query.py\nlibs/ast_query/gap_fixtures/broken_syntax.py\nlibs/ast_query/gap_fixtures/const_sample.py"
+
+# ls --exclude on an explicitly-named path is rejected too (like GNU grep),
+# even though a plain path arg isn't itself a directory walk.
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures --exclude fixtures"
+expect return = ""
+
+# --exclude written BEFORE the positional ROOT (every other --exclude stanza
+# in this file puts the flag last, to dodge LG-14): fixtures/ is pruned from
+# the walk of libs/ast_query itself, so the listing still contains the
+# top-level ast_query.py. This is the assertion that closed LG-13; avoid
+# pinning an exact full listing here since that directory also contains
+# volatile entries such as __pycache__.
+call: ast_query.run_cli_str
+arg cmdline = "ls --exclude fixtures libs/ast_query"
+expect contains = "ast_query.py"
+
+# ls -r control: no --exclude, fixtures/ contributes its own listing plus its
+# five files (gap_fixtures/ and __pycache__/ excluded here only to keep the
+# expected output stable; that is not what this stanza is testing).
+call: ast_query.run_cli_str
+arg cmdline = "ls -r libs/ast_query --exclude gap_fixtures,__pycache__"
+expect return = "libs/ast_query/README.md\nlibs/ast_query/__init__.py\nlibs/ast_query/__main__.py\nlibs/ast_query/ast_query.py\nlibs/ast_query/fixtures/\nlibs/ast_query/test_cli.txt\nlibs/ast_query/test_dsl.txt\nlibs/ast_query/test_gaps.txt\nlibs/ast_query/test_jsbackend.txt\nlibs/ast_query/test_primary.txt\nlibs/ast_query/fixtures/grep_sample.md\nlibs/ast_query/fixtures/grep_sample.py\nlibs/ast_query/fixtures/noext_sample\nlibs/ast_query/fixtures/sample.js\nlibs/ast_query/fixtures/sample.py"
+
+# ls -r with fixtures added to the exclude set: the fixtures/ directory
+# itself is pruned from the walk, so neither it nor any of its five files
+# appear, unlike the control stanza directly above.
+call: ast_query.run_cli_str
+arg cmdline = "ls -r libs/ast_query --exclude gap_fixtures,__pycache__,fixtures"
+expect return = "libs/ast_query/README.md\nlibs/ast_query/__init__.py\nlibs/ast_query/__main__.py\nlibs/ast_query/ast_query.py\nlibs/ast_query/test_cli.txt\nlibs/ast_query/test_dsl.txt\nlibs/ast_query/test_gaps.txt\nlibs/ast_query/test_jsbackend.txt\nlibs/ast_query/test_primary.txt"
+
+# comma-separated form: --exclude a,b excludes both grep_sample.md and
+# noext_sample in one flag, leaving only the .js/.py fixture files.
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures --exclude grep_sample.md,noext_sample"
+expect return = "grep_sample.py\nsample.js\nsample.py"
+
+# repeated-flag form is equivalent to the comma form directly above.
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures --exclude grep_sample.md --exclude noext_sample"
+expect return = "grep_sample.py\nsample.js\nsample.py"
+
+# trailing slash is tolerated: --exclude fixtures/ behaves exactly like
+# --exclude fixtures (compare to the "explicitly-named path" stanza above).
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures --exclude fixtures/"
+expect return = ""
+
+# each --files ... --exclude ...: --exclude drops grep_sample.md from the
+# explicit file list, so only the grep_sample.py hits remain.
+call: ast_query.run_cli_str
+arg cmdline = "each 'echo === {} ===' 'grep TODO {}' --files libs/ast_query/fixtures/grep_sample.py libs/ast_query/fixtures/grep_sample.md --exclude grep_sample.md"
+expect return = "=== libs/ast_query/fixtures/grep_sample.py ===\nlibs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+# --- check: syntax check (LG-10) ---
+
+# A clean file checks silently: no data, no log.
+call: ast_query.run_cli_str
+arg cmdline = "check libs/ast_query/fixtures/sample.py"
+expect return = ""
+
+# A file with a syntax error renders **ERROR** wrapping
+# "path:line:col: SyntaxError: msg" (exact message text varies by CPython
+# version, so only the wrapper + path:line: prefix are pinned).
+call: ast_query.run_cli_str
+arg cmdline = "check libs/ast_query/gap_fixtures/broken_syntax.py"
+expect contains = "**ERROR**"
+expect contains = "libs/ast_query/gap_fixtures/broken_syntax.py:7:"
+
+# Several paths in one invocation: the clean ones stay silent, only the
+# broken one is reported.
+call: ast_query.run_cli_str
+arg cmdline = "check libs/ast_query/fixtures/sample.py libs/ast_query/gap_fixtures/broken_syntax.py libs/ast_query/fixtures/grep_sample.py"
+expect contains = "**ERROR**"
+expect contains = "libs/ast_query/gap_fixtures/broken_syntax.py:7:"
+
+# A non-.py path draws a plain (unwrapped) warning, not an error — v1 is
+# Python-only.
+call: ast_query.run_cli_str
+arg cmdline = "check libs/ast_query/fixtures/grep_sample.md"
+expect return = "libs/ast_query/fixtures/grep_sample.md: not checked — v1 only syntax-checks Python (.py) files"
+
+# check is a DSL collector: piped file paths become operands, so the
+# broken file under gap_fixtures/ is reported (const_sample.py in the
+# same directory is clean and stays silent). Keep the optional --ext
+# after the positional ROOT per LG-14.
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query/gap_fixtures --ext .py ++ check"
+expect contains = "**ERROR**"
+expect contains = "libs/ast_query/gap_fixtures/broken_syntax.py:7:"

@@ -1,0 +1,258 @@
+# ast_query: primary plan
+# Checks scalar helpers against the deterministic fixture file.
+# fixture line numbers: helper=5, greet=9, Greeter=13, __init__=14, speak=17
+
+call: ast_query.definition_line
+arg name = "helper"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 5
+
+call: ast_query.definition_line
+arg name = "greet"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 9
+
+call: ast_query.definition_line
+arg name = "Greeter"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 13
+
+call: ast_query.definition_line
+arg name = "__init__"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 14
+
+call: ast_query.definition_line
+arg name = "nonexistent"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 0
+
+call: ast_query.definition_count
+arg name = "helper"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 1
+
+call: ast_query.definition_count
+arg name = "__init__"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 1
+
+call: ast_query.reference_count
+arg name = "helper"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 1
+
+call: ast_query.reference_count
+arg name = "greet"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 1
+
+call: ast_query.reference_count
+arg name = "Greeter"
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 0
+
+call: ast_query.outline_count
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = 5
+
+call: ast_query.outline_names
+arg path = "libs/ast_query/fixtures/sample.py"
+expect return = "helper,greet,Greeter,__init__,speak"
+
+# --- bre_ism_hint: grep/BRE-escape hint for Python-re users ---
+
+call: ast_query.bre_ism_hint
+arg pattern = "def evaluate\\|def validate"
+expect return = "Note: bin/look grep uses Python regex, not grep/BRE. `\\|` matched literally here (Python alternation is written bare: `|` for alternation, `(...)` for grouping, `+`/`?`/`{n}` for quantifiers) — that may be why this returned no matches."
+
+call: ast_query.bre_ism_hint
+arg pattern = "make\\(foo\\)"
+expect return = "Note: bin/look grep uses Python regex, not grep/BRE. `\\(`, `\\)` matched literally here (Python grouping is written bare: `|` for alternation, `(...)` for grouping, `+`/`?`/`{n}` for quantifiers) — that may be why this returned no matches."
+
+call: ast_query.bre_ism_hint
+arg pattern = "all_apps|app_by_route"
+expect return = None
+
+call: ast_query.bre_ism_hint
+arg pattern = "def evaluate"
+expect return = None
+
+# --- directory_notice: stderr text for directory args to grep without -r ---
+call: ast_query.directory_notice
+arg dirs_text = "foo_dir"
+expect return = "foo_dir: Is a directory\nFor recursive grep use -r"
+
+call: ast_query.directory_notice
+arg dirs_text = "a\nb"
+expect return = "a: Is a directory\nb: Is a directory\nFor recursive grep use -r"
+
+call: ast_query.directory_notice
+arg dirs_text = ""
+expect return = ""
+
+# --- no_grep_input_message: guidance for grep with no pipe and no target ---
+call: ast_query.no_grep_input_message
+expect return = "grep: no input. Pipe text in (`… ++ grep PATTERN`), name one or more files/directories, or use -r to search the current directory recursively."
+
+# --- run context: the two channels (design/look.md §9.1.1, §9.1.2) ---
+# Each scenario below uses its own fresh ctx so stanzas do not interfere.
+
+call: ast_query.new_run_context
+save as: ctx_empty
+
+call: ast_query.render_run_output
+arg data = "hits"
+arg ctx = $ctx_empty
+expect return = "hits"
+
+call: ast_query.new_run_context
+save as: ctx_empty2
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_empty2
+expect return = ""
+
+call: ast_query.new_run_context
+save as: ctx_warn_only
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_warn_only
+arg level = "warning"
+arg message = "dropped"
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_warn_only
+expect return = "dropped"
+
+call: ast_query.new_run_context
+save as: ctx_warn_with_data
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_warn_with_data
+arg level = "warning"
+arg message = "dropped"
+
+call: ast_query.render_run_output
+arg data = "hits"
+arg ctx = $ctx_warn_with_data
+expect return = "hits\n---- log ----\ndropped"
+
+call: ast_query.new_run_context
+save as: ctx_error
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_error
+arg level = "error"
+arg message = "boom"
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_error
+expect return = "**ERROR** boom **ERROR**"
+
+call: ast_query.new_run_context
+save as: ctx_info_default
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_info_default
+arg level = "info"
+arg message = "fyi"
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_info_default
+expect return = ""
+
+call: ast_query.new_run_context
+arg log_level = "info"
+save as: ctx_info_shown
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_info_shown
+arg level = "info"
+arg message = "fyi"
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_info_shown
+expect return = "fyi"
+
+call: ast_query.new_run_context
+arg log_level = "error"
+save as: ctx_error_only
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_error_only
+arg level = "error"
+arg message = "boom"
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_error_only
+arg level = "warning"
+arg message = "dropped"
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_error_only
+expect return = "**ERROR** boom **ERROR**"
+
+call: ast_query.new_run_context
+save as: ctx_collapse
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_collapse
+arg level = "warning"
+arg message = "dropped"
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_collapse
+arg level = "warning"
+arg message = "dropped"
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_collapse
+expect return = "dropped [2 times]"
+
+call: ast_query.new_run_context
+arg log_repeat = "each"
+save as: ctx_each
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_each
+arg level = "warning"
+arg message = "dropped"
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_each
+arg level = "warning"
+arg message = "dropped"
+
+call: ast_query.render_run_output
+arg data = ""
+arg ctx = $ctx_each
+expect return = "dropped\ndropped"
+
+call: ast_query.new_run_context
+save as: ctx_error_count
+
+call: ast_query.run_error_count
+arg ctx = $ctx_error_count
+expect return = 0
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_error_count
+arg level = "error"
+arg message = "one"
+
+call: ast_query.add_log_entry
+arg ctx = $ctx_error_count
+arg level = "error"
+arg message = "two"
+
+call: ast_query.run_error_count
+arg ctx = $ctx_error_count
+expect return = 2

@@ -1,0 +1,219 @@
+# ast_query: DSL evaluate test plan (C.2)
+# Tests _eval_dsl end-to-end via run_cli_str.
+# Fixtures: libs/ast_query/fixtures/sample.py (helper=5, greet=9, Greeter=13, __init__=14, speak=17)
+#           libs/ast_query/fixtures/grep_sample.py (TODO at lines 8, 10, 12)
+
+# --- filter pipe: grep ++ head ---
+# grep "def helper" in sample.py hits exactly line 5 (the definition).
+# Output from grep (file mode): "path:line:col\tlinetext" — one line.
+# head 1 receives that as piped text (no explicit path) → returns first line of the text.
+# The text is already formatted as "path:line:col\tlinetext" so head 1 returns it unchanged.
+
+call: ast_query.run_cli_str
+arg cmdline = "grep 'def helper' libs/ast_query/fixtures/sample.py ++ head 1"
+expect return = "libs/ast_query/fixtures/sample.py:5:1\tdef helper(x):"
+
+# --- collector pipe: ls -r *.py ++ outline ---
+# ls -r '*.py' libs/ast_query/fixtures lists grep_sample.py and sample.py.
+# outline treats piped paths as file operands and outlines them.
+# sample.py defines "helper" at line 5 — verify it appears in the output.
+
+call: ast_query.run_cli_str
+arg cmdline = "ls -r '*.py' libs/ast_query/fixtures ++ outline"
+expect contains = "function helper"
+
+# --- source pipe: ls ++ grep sample ---
+# ls libs/ast_query/fixtures returns entry names (one per line).
+# grep "sample" is a filter with no explicit path — operates on the piped names.
+# Every entry in the fixtures dir contains "sample", so all entries match.
+# The output is "line:col\tlinetext" format (no path prefix).
+
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures ++ grep sample"
+expect contains = "sample.py"
+
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures ++ grep sample"
+expect contains = "sample.js"
+
+# --- cat ++ grep: read file contents then filter ---
+# cat reads grep_sample.py (numbered lines); grep TODO filters the numbered text.
+# Three TODO hits exist in the original file (lines 8, 10, 12), so three
+# cat-numbered lines match. Output is "line:col\tlinetext" with no path prefix.
+
+call: ast_query.run_cli_str
+arg cmdline = "cat libs/ast_query/fixtures/grep_sample.py ++ grep TODO"
+expect contains = "TODO in a comment"
+expect contains = "TODO here"
+expect contains = "TODO_count"
+
+# --- :: concatenation (seq) ---
+# Two echo commands joined with :: each evaluate independently with the same
+# (empty) input; non-empty results joined with newline.
+
+call: ast_query.run_cli_str
+arg cmdline = "echo AAA :: echo BBB"
+expect return = "AAA\nBBB"
+
+# --- {{ }} grouping changes evaluation order ---
+# Without group: "echo AAA :: echo BBB :: echo CCC" → seq of three echos → "AAA\nBBB\nCCC"
+# With group:    "{{ echo AAA :: echo BBB }} ++ head 1 :: echo CCC"
+#   → pipe(group(seq(echo AAA, echo BBB)), head 1) concatenated with echo CCC
+#   → pipe produces head 1 of "AAA\nBBB" = "AAA", then seq with CCC → "AAA\nCCC"
+
+call: ast_query.run_cli_str
+arg cmdline = "echo AAA :: echo BBB :: echo CCC"
+expect return = "AAA\nBBB\nCCC"
+
+call: ast_query.run_cli_str
+arg cmdline = "{{ echo AAA :: echo BBB }} ++ head 1 :: echo CCC"
+expect return = "AAA\nCCC"
+
+# --- source ignores piped input ---
+# echo is a source (_DSL_SOURCES): it ignores piped text and emits its own argv.
+# So "echo HELLO ++ echo WORLD" should return only "WORLD" (the second echo's output).
+
+call: ast_query.run_cli_str
+arg cmdline = "echo HELLO ++ echo WORLD"
+expect return = "WORLD"
+
+# ===========================================================================
+# C.3 — loop + {} / {n} placeholder tests
+# ===========================================================================
+
+# --- loop: banner + grep over file list (single depth, {} substitution) ---
+# ls -r '*.py' libs/ast_query/fixtures returns two paths (sorted):
+#   libs/ast_query/fixtures/grep_sample.py
+#   libs/ast_query/fixtures/sample.py
+# The loop body is a seq: echo '=== {} ===' :: grep helper {}.
+# For sample.py: echo produces the banner; grep helper finds:
+#   line 5 (def helper(x):) and line 10 (return helper(name)).
+# For grep_sample.py: echo produces the banner; grep finds nothing.
+# Assert: banner for sample.py appears and a grep hit containing "def helper" appears.
+
+call: ast_query.run_cli_str
+arg cmdline = "ls -r '*.py' libs/ast_query/fixtures ++ loop {{ echo '=== {} ===' :: grep helper {} }}"
+expect contains = "=== libs/ast_query/fixtures/sample.py ==="
+
+call: ast_query.run_cli_str
+arg cmdline = "ls -r '*.py' libs/ast_query/fixtures ++ loop {{ echo '=== {} ===' :: grep helper {} }}"
+expect contains = "def helper"
+
+# --- loop: nested loops exercise {2} (depth-2 outer reference) ---
+# Outer loop input: ls of a single file path → one line "sample.py".
+# Inner loop input: ls of another file path → one line "grep_sample.py".
+# Body: echo '{2}:{}' — {2} = outer line (sample.py), {} = inner line (grep_sample.py).
+# Expected output: "sample.py:grep_sample.py"
+
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures/sample.py ++ loop {{ ls libs/ast_query/fixtures/grep_sample.py ++ loop {{ echo '{2}:{}' }} }}"
+expect return = "sample.py:grep_sample.py"
+
+# --- loop: literal out-of-range {2} at depth 1 ---
+# Single-depth loop (stack depth = 1). {2} is out-of-range (n=2 > len=1)
+# so it must be left literal (not substituted).
+# echo 'a{2}b' with one input line → "a{2}b".
+
+call: ast_query.run_cli_str
+arg cmdline = "echo outer ++ loop {{ echo 'a{2}b' }}"
+expect return = "a{2}b"
+
+# --- loop: empty input yields empty string ---
+# grep for a nonexistent pattern returns "" → loop receives no non-empty lines
+# → returns "".
+
+call: ast_query.run_cli_str
+arg cmdline = "grep zzzznomatch libs/ast_query/fixtures/sample.py ++ loop {{ echo X }}"
+expect return = ""
+
+# --- loop: backslash escape makes {2} literal (backslashes removed) ---
+# '\{2\}' is single-quoted in the cmdline string, delivering the token \{2\}
+# (backslash-open-brace, 2, backslash-close-brace).  Both \{ and \} are
+# escape forms: each backslash is stripped and the brace kept literal.
+# Result: echo receives the token {2} (no substitution) → output "{2}".
+
+call: ast_query.run_cli_str
+arg cmdline = "echo outer ++ loop {{ echo '\{2\}' }}"
+expect return = "{2}"
+
+# ===========================================================================
+# C.4 — top-level routing: leading globals + back-compat + parse error
+# ===========================================================================
+
+# --- back-compat guard: non-DSL commands still return the same result ---
+# These two cases are also tested in test_cli.txt; asserting here proves that
+# the no-operator path through run_cli_argv is unchanged after C.4 edits.
+
+call: ast_query.run_cli_str
+arg cmdline = "def helper libs/ast_query/fixtures/sample.py"
+expect return = "libs/ast_query/fixtures/sample.py:5:0\tfunction helper"
+
+call: ast_query.run_cli_str
+arg cmdline = "grep TODO libs/ast_query/fixtures/grep_sample.py"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\"\nlibs/ast_query/fixtures/grep_sample.py:12:1\tTODO_count = 0"
+
+# --- -H 1 before a DSL expression caps the final output to 1 line ---
+# echo AAA :: echo BBB produces "AAA\nBBB" (two lines).
+# -H 1 placed before the DSL expression caps the output to the first line only.
+
+call: ast_query.run_cli_str
+arg cmdline = "-H 1 echo AAA :: echo BBB"
+expect return = "AAA"
+
+# --- unbalanced {{ returns the parse-error message ---
+# An unmatched {{ causes _parse_dsl → _parse_group to raise ValueError with
+# a message containing "unbalanced".  run_cli_argv catches it and returns str(exc).
+
+call: ast_query.run_cli_str
+arg cmdline = "echo a ++ {{ echo b"
+expect contains = "unbalanced"
+
+# --- leading --lang accepted without crash ---
+# --lang py is peeled as a leading global; the rest is a DSL pipe.
+# outline of sample.py must include at least "helper" (a known def name).
+
+call: ast_query.run_cli_str
+arg cmdline = "--lang py outline libs/ast_query/fixtures/sample.py ++ head 3"
+expect contains = "helper"
+
+# --- leading --log / --log-repeat accepted on the DSL path ---
+# --log info is peeled before _parse_dsl runs; nothing logs at info yet, so
+# the two-echo seq result is unchanged from the un-flagged form.
+
+call: ast_query.run_cli_str
+arg cmdline = "--log info echo AAA :: echo BBB"
+expect return = "AAA\nBBB"
+
+# --log-repeat each: with an empty log there is nothing to collapse or
+# expand, so the data channel is unchanged.
+
+call: ast_query.run_cli_str
+arg cmdline = "--log-repeat each echo AAA :: echo BBB"
+expect return = "AAA\nBBB"
+
+# --- leading --log bogus is caught before the expression is even parsed ---
+# _apply_log_settings runs on the peeled globals before _parse_dsl, so a bad
+# value never reaches DSL parsing; it logs an error and the data channel is
+# suppressed entirely.
+
+call: ast_query.run_cli_str
+arg cmdline = "--log bogus echo AAA :: echo BBB"
+expect contains = "**ERROR**"
+
+# --- filter pipe: unix-style `head -N` count ---
+# `head -5` is the unix spelling of "first 5 lines". argparse's negative-number
+# heuristic binds it to N, so slicing with a raw negative bound would drop the
+# LAST 5 lines and return "" for any shorter stream — silently reading as
+# "no matches". `-1` must mean "first 1 line", identical to `1`.
+
+call: ast_query.run_cli_str
+arg cmdline = "grep 'def helper' libs/ast_query/fixtures/sample.py ++ head -1"
+expect return = "libs/ast_query/fixtures/sample.py:5:1\tdef helper(x):"
+
+# Three TODO hits exist in grep_sample.py (lines 8, 10, 12). `head -2` must be
+# the FIRST two hits, not "all but the last two" (which would be the line-8 hit
+# alone) — this stanza is what distinguishes the two readings.
+
+call: ast_query.run_cli_str
+arg cmdline = "grep TODO libs/ast_query/fixtures/grep_sample.py ++ head -2"
+expect return = "libs/ast_query/fixtures/grep_sample.py:8:3\t# TODO in a comment\nlibs/ast_query/fixtures/grep_sample.py:10:15\tmsg = \"string TODO here\""

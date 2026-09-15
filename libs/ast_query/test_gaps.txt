@@ -1,0 +1,236 @@
+# ast_query: gap-register pins (full mode only)
+#
+# This plan pins CURRENTLY-WRONG behaviour recorded in design/look.md §8
+# (the bin/look gap register). Each stanza is tagged with its LG- id and
+# carries a `# DESIRED:` comment describing the behaviour that should
+# replace it. The suite MUST stay green while a gap is open: `expect`
+# asserts today's (wrong) output, not the desired one.
+#
+# Closing a gap is a visible diff: flip the `expect` to the desired value,
+# delete the LG- tag and DESIRED comment here, and move the row from
+# design/look.md §8.1/8.2 to §8.4 (Closed).
+
+# --- LG-6: def/refs/outline do not index module-level or class-level constants ---
+# Fixture: libs/ast_query/gap_fixtures/const_sample.py
+#   line 3, col 0 — module-level constant _GLOB_METACHARS
+#   line 7, col 4 — class-level constant Config.DEFAULT_TIMEOUT
+
+# LG-6
+# DESIRED: libs/ast_query/gap_fixtures/const_sample.py:3:0\tconst _GLOB_METACHARS
+call: ast_query.run_cli_str
+arg cmdline = "def _GLOB_METACHARS libs/ast_query/gap_fixtures/const_sample.py"
+expect return = ""
+
+# LG-6
+# DESIRED: libs/ast_query/gap_fixtures/const_sample.py:7:4\tconst DEFAULT_TIMEOUT
+call: ast_query.run_cli_str
+arg cmdline = "def DEFAULT_TIMEOUT libs/ast_query/gap_fixtures/const_sample.py"
+expect return = ""
+
+# LG-6
+# DESIRED: outline should also list the two constants above (in source order,
+# interleaved with the class/method definitions it already reports).
+call: ast_query.run_cli_str
+arg cmdline = "outline libs/ast_query/gap_fixtures/const_sample.py"
+expect return = "libs/ast_query/gap_fixtures/const_sample.py:6:10\tclass Config\nlibs/ast_query/gap_fixtures/const_sample.py:9:10\tfunction get_timeout"
+
+# --- LG-1: wc treats piped content as filenames, not a line count ---
+# DESIRED: a single line count of libs/ast_query/fixtures/sample.py (19 lines).
+
+# LG-1
+call: ast_query.run_cli_str
+arg cmdline = "outline libs/ast_query/fixtures/sample.py ++ wc -l"
+expect contains = "No such file or directory"
+
+# --- LG-2: ls <dir> emits bare basenames, unusable as a wc/wc-like path list ---
+# DESIRED: ls <dir> emits dir/name paths so a downstream wc can stat them.
+
+# LG-2
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures ++ wc -l"
+expect contains = "No such file or directory"
+
+# --- LG-4: find <dir> '<pattern>' silently absorbs the pattern as an extra root ---
+# DESIRED: an error naming the unexpected positional '*.py', not a silent
+# whole-directory listing that includes non-.py files like noext_sample.
+
+# LG-4
+call: ast_query.run_cli_str
+arg cmdline = "find libs/ast_query/fixtures '*.py'"
+expect contains = "noext_sample"
+
+# --- LG-16: --lang is parsed, peeled, and discarded; it does nothing ---
+# DESIRED: --lang deleted from the surface, or honoured (a Python file under
+# --lang js should NOT be found via the Python def backend).
+
+# LG-16
+call: ast_query.run_cli_str
+arg cmdline = "--lang js def helper libs/ast_query/fixtures/sample.py"
+expect contains = "function helper"
+
+# --- LG-3 / LG-14: non-contiguous positionals are orphaned ---
+# DESIRED: `ls DIR -r '*.py'` works the same as `ls -r DIR '*.py'` and
+# `ls DIR '*.py' -r` (both of which already work today, listing
+# grep_sample.py and sample.py) — the constraint is contiguity of the
+# two positionals, not their order relative to -r. LG-3 and LG-14 close
+# together: they are one root cause (argparse orphans a positional that
+# comes after an optional that itself follows a positional group).
+
+# LG-3 LG-14
+call: ast_query.run_cli_str
+arg cmdline = "ls libs/ast_query/fixtures -r '*.py'"
+expect raises = "SystemExit"
+
+# --- LG-14: grep's positional/optional/positional order fails ---
+# DESIRED: `grep helper -r libs/ast_query/fixtures` works in the order a
+# human types it (pattern, then flag, then path) instead of requiring the
+# flag before the trailing positional.
+
+# LG-14
+call: ast_query.run_cli_str
+arg cmdline = "grep helper -r libs/ast_query/fixtures"
+expect raises = "SystemExit"
+
+# --- LG-8: head accepts neither -n nor -c on the subcommand ---
+# DESIRED: -n/-c accepted on `head` itself, not only as the global -H N
+# which must precede the subcommand.
+
+# LG-8
+call: ast_query.run_cli_str
+arg cmdline = "head -n 3 libs/ast_query/fixtures/sample.py"
+expect raises = "SystemExit"
+
+# --- LG-15: argparse errors print the least useful message (top-level ---
+# --- usage, no flags) at the moment the surface is needed.            ---
+# NOT MECHANICALLY PINNABLE today: run_cli_str/run_cli_argv call
+# parser.parse_args(), and argparse's error() path writes usage text to
+# sys.stderr (via parser.error() -> print_usage(sys.stderr) -> exit),
+# not to sys.stdout. libs/test_harness/harness.py only wraps the call in
+# `redirect_stdout` (harness.py:24,279,283) to satisfy `expect prints`;
+# it never redirects stderr, and `expect raises`/`expect return` cannot
+# see written-but-not-returned text either. So there is currently no
+# harness field that observes the usage string, only the SystemExit
+# itself (already covered by the LG-3/LG-14/LG-8 stanzas above). Pinning
+# LG-15's *message* would require either routing argparse's error output
+# through something the harness captures (e.g. redirect_stderr, or
+# making run_cli_argv catch SystemExit and return the message), which is
+# a code change, not a test-only pin. Left open for design/look.md §8 to
+# record; no `raises`-only stanza is added here because it would just
+# duplicate LG-3/LG-14/LG-8 without pinning anything new about LG-15
+# itself.
+
+# --- LG-7 + LG-17 + LG-24: piped content is silently dropped with no ---
+# --- filename, no diagnostic, and exit 0.                             ---
+# DESIRED: `outline` consumes piped content directly, or errors saying
+# it needs a filename, instead of returning "" as if there were no defs.
+
+# LG-7 LG-17 LG-24
+call: ast_query.run_cli_str
+arg cmdline = "git show HEAD:libs/ast_query/fixtures/sample.py ++ outline"
+expect return = ""
+
+# --- LG-17: _parse_python swallows SyntaxError -> None ---
+# Fixture: libs/ast_query/gap_fixtures/broken_syntax.py (intentionally
+# unparseable; see its header comment — do not "fix" its syntax).
+# DESIRED: stderr gets "path:line:col: SyntaxError: msg" and a non-zero
+# exit, instead of a silent empty result indistinguishable from a valid
+# file that simply defines nothing (see the next stanza).
+
+# LG-17
+call: ast_query.run_cli_str
+arg cmdline = "outline libs/ast_query/gap_fixtures/broken_syntax.py"
+expect return = ""
+
+# LG-17: the same empty result is produced by a file that parses fine
+# but has no defs — libs/ast_query/fixtures/grep_sample.py (comments and
+# two bare assignments, no def/class). This is the unsoundness LG-17
+# calls out: "" means at least two different things here alone.
+
+# LG-17
+call: ast_query.run_cli_str
+arg cmdline = "outline libs/ast_query/fixtures/grep_sample.py"
+expect return = ""
+
+# --- LG-9: grep has no -c (count) flag ---
+# DESIRED: `grep -c PATTERN PATH` prints a single match count instead of
+# erroring on an unrecognized flag.
+
+# LG-9
+call: ast_query.run_cli_str
+arg cmdline = "grep -c helper libs/ast_query/fixtures/sample.py"
+expect raises = "SystemExit"
+
+# --- LG-5: grep has no -A/-B/-C context flags ---
+# DESIRED: `-A`/`-B`/`-C` print N lines of context around/before/after each
+# match, like real grep, so reading around a hit does not cost a Read.
+
+# LG-5
+call: ast_query.run_cli_str
+arg cmdline = "grep -A2 helper libs/ast_query/fixtures/sample.py"
+expect raises = "SystemExit"
+
+# --- LG-11: no process-inspection verb ---
+# DESIRED: a read-only `look ps [pattern]` listing pid/elapsed/cmdline,
+# never signalling, so an orphaned subprocess after a killed live run can
+# be found without a bounced `ps`/`pgrep`.
+
+# LG-11
+call: ast_query.run_cli_str
+arg cmdline = "ps"
+expect raises = "SystemExit"
+
+# --- LG-26: REMAINDER subcommands swallow unknown flags ---
+# DESIRED: every subcommand should reject an unrecognized flag with an
+# error and a non-zero exit, uniformly. `echo`, `wc`, and `git` are
+# declared with nargs=argparse.REMAINDER and prefix_chars="\x00", so
+# argparse never validates their arguments and a mistyped flag is
+# silently swallowed as an ordinary operand instead.
+
+# LG-26
+call: ast_query.run_cli_str
+arg cmdline = "echo --exclude foo"
+expect return = "--exclude foo"
+
+# LG-26
+# wc's exact wording comes from the system wc binary and can vary across
+# machines, so assert a stable fragment rather than an exact `expect
+# return`.
+call: ast_query.run_cli_str
+arg cmdline = "wc -l libs/ast_query/fixtures/sample.py --exclude foo"
+expect contains = "unrecognized option"
+
+# LG-26: contrast only — cat and head already reject the same mistyped
+# flag correctly (argparse SystemExit). This is the RIGHT behaviour;
+# whoever closes LG-26 should make echo/wc/git converge to THIS, not
+# "fix" these two by mistake.
+call: ast_query.run_cli_str
+arg cmdline = "cat libs/ast_query/fixtures/sample.py --exclude foo"
+expect raises = "SystemExit"
+
+# LG-26
+call: ast_query.run_cli_str
+arg cmdline = "head 2 libs/ast_query/fixtures/sample.py --exclude foo"
+expect raises = "SystemExit"
+
+# --- LG-12: the permitted git subcommand set is undiscoverable ---
+# Rewritten 2026-08-23: the original row here judged LG-12 unpinnable (a
+# discoverability observation about one worker's mistake, not a bug) and
+# left only this comment. That judgement is overturned — a real defect
+# was found. `_GIT_READONLY_SUBCOMMANDS` (ast_query.py:1142) holds 24
+# entries and nothing prints them. `look git -h` is parsed as a
+# *subcommand*, not routed to argparse's own `-h` (p_git uses
+# prefix_chars="\x00", so "-h" never matches a flag prefix and falls into
+# the REMAINDER positional instead), so the one gesture that would reveal
+# the allowlist is the one gesture that gets rejected by it. You discover
+# the boundary only by hitting it. This row is solely about the permitted
+# set being unprintable; the secondary question of whether `branch`/
+# `worktree` should be admitted is closed — see design/look.md §9.5.
+# Full history: design/look.md §8.1 LG-12.
+
+# LG-12
+# DESIRED: `look git -h` (and `look git` with no subcommand) should list
+# the 24 entries of _GIT_READONLY_SUBCOMMANDS instead of rejecting '-h'
+# as an unknown subcommand.
+call: ast_query.run_cli_str
+arg cmdline = "git -h"
+expect return = "git: '-h' is not an allowed read-only subcommand"

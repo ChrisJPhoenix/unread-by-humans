@@ -1,0 +1,25 @@
+# ast_query: JS backend plan (full mode only — requires ast-grep binary)
+# Fixture: libs/ast_query/fixtures/sample.js
+#   line 5  — function helper(x)
+#   line 9  — function greet(name)
+#   line 13 — class Greeter
+#   line 14 — method speak(name)   [no `function` keyword, NOT matched by function pattern]
+#
+# ast-grep 0.44 reports 0-based lines in JSON; search_pattern adds +1 for 1-based.
+# Empirically confirmed: function pattern matches helper+greet (2 hits);
+#   class pattern matches Greeter (1 hit); `speak` has no `function` keyword so 0.
+
+call: ast_query.ast_grep_available
+expect return = true
+
+call: ast_query.pattern_count
+arg lang = "js"
+arg pattern = "function $NAME($$$) { $$$ }"
+arg path = "libs/ast_query/fixtures/sample.js"
+expect return = 2
+
+call: ast_query.pattern_count
+arg lang = "js"
+arg pattern = "class $C { $$$ }"
+arg path = "libs/ast_query/fixtures/sample.js"
+expect return = 1
