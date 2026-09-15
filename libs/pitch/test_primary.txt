@@ -1,0 +1,59 @@
+# letter+octave+accidental → MIDI
+call: pitch.letter_octave_accidental_to_midi
+arg letter = "c"
+arg octave = 4
+arg acc = ""
+expect return = 60
+
+call: pitch.letter_octave_accidental_to_midi
+arg letter = "c"
+arg octave = 4
+arg acc = "#"
+expect return = 61
+
+call: pitch.letter_octave_accidental_to_midi
+arg letter = "c"
+arg octave = 4
+arg acc = "b"
+expect return = 59
+
+# Out of MIDI range raises.
+call: pitch.letter_octave_accidental_to_midi
+arg letter = "a"
+arg octave = 9
+arg acc = ""
+expect raises = "PitchParseError"
+
+# Single designators.
+call: pitch.note_designator_to_midi
+arg designator = "C4"
+expect return = 60
+
+call: pitch.note_designator_to_midi
+arg designator = "D#3"
+expect return = 51
+
+call: pitch.note_designator_to_midi
+arg designator = "Bb5"
+expect return = 82
+
+call: pitch.note_designator_to_midi
+arg designator = "H4"
+expect raises = "PitchParseError"
+
+call: pitch.note_designator_to_midi
+arg designator = ""
+expect raises = "PitchParseError"
+
+# Chord separators are equivalent: space, comma, hyphen.
+call: pitch.parse_pitch_chord
+arg text = "C4 E4 G4"
+save as: chord
+
+call: pitch.parse_pitch_chord
+arg text = "C4,E4,G4"
+expect return = $chord
+
+call: pitch.parse_pitch_chord
+arg text = "C4-E4-G4"
+expect return = $chord

@@ -1,0 +1,54 @@
+# Default map: bpm 120 at beat 0, 240 at beat 4.
+call: tempo_map.build_tempo_map
+arg changes =
+    0 120
+    4 240
+save as: m
+expect return =
+    0 120.0
+    4 240.0
+
+# 4 beats at 120 bpm = 4 * 0.5 s = 2.0 s.
+call: tempo_map.beats_to_seconds
+arg beat = 4
+arg tempo_map = $m
+expect return = 2.0
+
+# 4 beats at 120 (2.0 s) + 2 beats at 240 (2 * 0.25 = 0.5 s) = 2.5 s.
+call: tempo_map.beats_to_seconds
+arg beat = 6
+arg tempo_map = $m
+expect return = 2.5
+
+# Duration of beats 4..6 alone = 0.5 s.
+call: tempo_map.segment_seconds
+arg start_beat = 4
+arg end_beat = 6
+arg tempo_map = $m
+expect return = 0.5
+
+# A bpm change before beat 0's default is prepended; first change at beat 2.
+call: tempo_map.build_tempo_map
+arg changes =
+    2 240
+save as: m2
+expect return =
+    0 120.0
+    2 240.0
+
+# Two DIFFERENT bpm at the same beat is a conflict.
+call: tempo_map.build_tempo_map
+arg changes =
+    2 120
+    2 240
+expect raises = "TempoConflictError"
+
+# Same bpm at the same beat is fine (collapses to one segment).
+call: tempo_map.build_tempo_map
+arg changes =
+    2 120
+    2 120
+save as: m3
+expect return =
+    0 120.0
+    2 120.0

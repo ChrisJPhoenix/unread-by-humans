@@ -1,0 +1,264 @@
+# Basic note grid: anchor c4 (octave only) then notes c d e → beats 0,1,2,
+# each 1 beat, midi 60/62/64, default velocity v80 = round(80*127/100) = 102.
+call: music_parser.event_grid
+arg text = "piano:c4 c d e"
+expect return =
+    0.0 1.0 60 102
+    1.0 1.0 62 102
+    2.0 1.0 64 102
+
+# The four rest spellings are equivalent (all = 5 increments).
+# Each yields a single event: note c at beat 5, duration 1.
+call: music_parser.event_grid
+arg text = "piano:c4 .5 c"
+save as: r
+
+call: music_parser.event_grid
+arg text = "piano:c4 ..... c"
+expect return = $r
+
+call: music_parser.event_grid
+arg text = "piano:c4 .---- c"
+expect return = $r
+
+call: music_parser.event_grid
+arg text = "piano:c4 . . . . . c"
+expect return = $r
+
+# Absolute timing in 4/4: 5-increment rest (beats 0..5) + c (beats 5..6).
+# The anchor c4 is not a note, so beat_count = 6.0.
+call: music_parser.section_beat_count
+arg text = "piano:c4 .5 c"
+expect return = 6.0
+
+# Dotted-section include regression: an include line referencing a section
+# named "verse1.1" must be recognized (not "unrecognized include token").
+# verse1.1 has anchor c4 (octave only) then notes c d → midi 60/62, v80=102.
+# verse1 includes verse1.1, so its grid is those two notes at beats 0 and 1.
+call: music_parser.event_grid
+arg text = "verse1.1\npiano:c4 c d\nverse1\ninclude verse1.1"
+arg section = "verse1"
+expect return =
+    0.0 1.0 60 102
+    1.0 1.0 62 102
+
+# Include-line .-family rest shifts the referenced section later in beat_time.
+# verse = c d (midi 60,62 at beats 0,1). A .5 rest = 5 beats, so the notes land at 5 and 6.
+call: music_parser.event_grid
+arg text = "verse\npiano:c4 c d\nsong\ninclude .5 verse"
+arg section = "song"
+expect return =
+    5.0 1.0 60 102
+    6.0 1.0 62 102
+
+# The .-family rest adds its duration to the include track's beat_count (5 + verse's 2 = 7).
+call: music_parser.section_beat_count
+arg text = "verse\npiano:c4 c d\nsong\ninclude .5 verse"
+arg section = "song"
+expect return = 7.0
+
+# The four .-rest spellings are equivalent on include lines (all = 5 increments).
+call: music_parser.event_grid
+arg text = "verse\npiano:c4 c d\nsong\ninclude .5 verse"
+arg section = "song"
+save as: increst
+
+call: music_parser.event_grid
+arg text = "verse\npiano:c4 c d\nsong\ninclude ..... verse"
+arg section = "song"
+expect return = $increst
+
+call: music_parser.event_grid
+arg text = "verse\npiano:c4 c d\nsong\ninclude .---- verse"
+arg section = "song"
+expect return = $increst
+
+call: music_parser.event_grid
+arg text = "verse\npiano:c4 c d\nsong\ninclude . . . . . verse"
+arg section = "song"
+expect return = $increst
+
+# Bare _ rests to the end of the current measure (4 beats in 4/4 from a fresh track),
+# shifting the referenced section's notes to beats 4 and 5.
+call: music_parser.event_grid
+arg text = "verse\npiano:c4 c d\nsong\ninclude _ verse"
+arg section = "song"
+expect return =
+    4.0 1.0 60 102
+    5.0 1.0 62 102
+
+# After 2 beats of verse, bare _ advances the remaining 2 beats of the 4/4 measure;
+# the second verse then starts at beat 4.
+call: music_parser.event_grid
+arg text = "verse\npiano:c4 c d\nsong\ninclude verse _ verse"
+arg section = "song"
+expect return =
+    0.0 1.0 60 102
+    1.0 1.0 62 102
+    4.0 1.0 60 102
+    5.0 1.0 62 102
+
+# Regression: bare _ must be a rest-to-bar, not a section reference named "_".
+# verse (2 beats) then bare _ to end of measure (beat 4) -> beat_count 4.
+call: music_parser.section_beat_count
+arg text = "verse\npiano:c4 c d\nsong\ninclude verse _"
+arg section = "song"
+expect return = 4.0
+
+# Octave markers: `^` up / `v` down one octave from the note's DEFAULT octave.
+# Anchor g4: g defaults to 4 so g^ = g5; d defaults to 5 so dv = d4 (5-1).
+# The marker form equals the digit form.
+call: music_parser.event_grid
+arg text = "piano:g4 g b d g5 d b g d4 g"
+save as: markers_digit
+expect return =
+    0.0 1.0 67 102
+    1.0 1.0 71 102
+    2.0 1.0 74 102
+    3.0 1.0 79 102
+    4.0 1.0 74 102
+    5.0 1.0 71 102
+    6.0 1.0 67 102
+    7.0 1.0 62 102
+    8.0 1.0 67 102
+
+call: music_parser.event_grid
+arg text = "piano:g4 g b d g^ d b g dv g"
+expect return = $markers_digit
+
+# Markers shift relative to the current anchor: with anchor g5, g^ = g6 and gv = g4.
+call: music_parser.event_grid
+arg text = "piano:g5 g6 g4"
+save as: g5_anchor_markers
+expect return =
+    0.0 1.0 91 102
+    1.0 1.0 67 102
+
+call: music_parser.event_grid
+arg text = "piano:g5 g^ gv"
+expect return = $g5_anchor_markers
+
+# Markers stack: g^^ = +2 octaves, gvv = -2, g^^^ = +3, gvvv = -3 (from anchor g4).
+call: music_parser.event_grid
+arg text = "piano:g4 g6 g2 g7 g1"
+save as: stacked_markers
+expect return =
+    0.0 1.0 91 102
+    1.0 1.0 43 102
+    2.0 1.0 103 102
+    3.0 1.0 31 102
+
+call: music_parser.event_grid
+arg text = "piano:g4 g^^ gvv g^^^ gvvv"
+expect return = $stacked_markers
+
+# A marker combines with an accidental: g^# = g5# = midi 80.
+call: music_parser.event_grid
+arg text = "piano:g4 g5#"
+save as: marker_accidental
+expect return =
+    0.0 1.0 80 102
+
+call: music_parser.event_grid
+arg text = "piano:g4 g^#"
+expect return = $marker_accidental
+
+# A marker combines with a dash (duration extension): g^- = g5 held 2 beats.
+call: music_parser.event_grid
+arg text = "piano:g4 g5-"
+save as: marker_dash
+expect return =
+    0.0 2.0 79 102
+
+call: music_parser.event_grid
+arg text = "piano:g4 g^-"
+expect return = $marker_dash
+
+# Regression: a trailing rest at the end of an instrument line must be counted
+# in beat_count. In 8/8 each increment is 0.5 quarter-beats. Note c occupies
+# beats 0..0.5; the trailing .12 rest adds 12 increments = 6.0 beats, so
+# beat_count = 6.5 (the trailing rest is NOT dropped). The anchor c4 is not a note.
+call: music_parser.section_beat_count
+arg text = "piano:c4 8/8 c .12"
+expect return = 6.5
+
+# Multi-include regression: two separate include lines in one section must run
+# as PARALLEL tracks, each starting at beat 0 (not sequentially). Both a's notes
+# (60,62,64) and b's notes (67,69) appear, with events from BOTH at beat 0.
+call: music_parser.event_grid
+arg text = "a\npiano:c4 c d e\nb\npiano:c4 g a\nsong\ninclude a\ninclude b"
+arg section = "song"
+expect return =
+    0.0 1.0 60 102
+    0.0 1.0 67 102
+    1.0 1.0 62 102
+    1.0 1.0 69 102
+    2.0 1.0 64 102
+
+# beat_count of a section with multiple parallel include lines is the MAX of the
+# include-track lengths (a=3, b=2), never their sum.
+call: music_parser.section_beat_count
+arg text = "a\npiano:c4 c d e\nb\npiano:c4 g a\nsong\ninclude a\ninclude b"
+arg section = "song"
+expect return = 3.0
+
+# ── Percussion lines (z-hit syntax) ──────────────────────────────────────────
+# A percussion instrument (designed with is_percussion + drum_note) uses an
+# anchor-free line: every `z` is a hit of the selected drum sound (here cowbell,
+# midi 56) and whitespace between z/./- runs is optional. drum_note=56, v80=102.
+call: music_parser.percussion_instrument_map
+arg name = "cowbell"
+arg bank = 0
+arg program = 0
+arg drum_note = 56
+save as: drums
+
+# Worked example in 8/8 (increment = 0.5 beat):
+#   z       hit  @0.0 dur0.5
+#   ...     rest 3 inc (t->2.0)
+#   z--     hit  @2.0 dur1.5 (undamped, held 3 inc)
+#   .       rest 1 inc (t->4.0)  -- closes the 8-increment measure
+#   |       bar (validates 8 increments)
+#   z-      hit  @4.0 dur1.0
+#   . .     rest, rest (t->6.0)
+#   zzzz    four hits @6.0,6.5,7.0,7.5 dur0.5
+call: music_parser.event_grid
+arg text = "CowBell 8/8 z...z--. | z- . . zzzz"
+arg instruments = $drums
+expect return =
+    0.0 0.5 56 102
+    2.0 1.5 56 102
+    4.0 1.0 56 102
+    6.0 0.5 56 102
+    6.5 0.5 56 102
+    7.0 0.5 56 102
+    7.5 0.5 56 102
+
+# Whitespace between hits is optional: `zzzz` equals `z z z z`.
+call: music_parser.event_grid
+arg text = "CowBell 8/8 zzzz"
+arg instruments = $drums
+save as: four_hits
+expect return =
+    0.0 0.5 56 102
+    0.5 0.5 56 102
+    1.0 0.5 56 102
+    1.5 0.5 56 102
+
+call: music_parser.event_grid
+arg text = "CowBell 8/8 z z z z"
+arg instruments = $drums
+expect return = $four_hits
+
+# A dash sustains the hit: `z--` is one hit held 3 increments; `z` is one increment.
+call: music_parser.event_grid
+arg text = "CowBell 8/8 z--"
+arg instruments = $drums
+expect return =
+    0.0 1.5 56 102
+
+call: music_parser.event_grid
+arg text = "CowBell 8/8 z"
+arg instruments = $drums
+expect return =
+    0.0 0.5 56 102

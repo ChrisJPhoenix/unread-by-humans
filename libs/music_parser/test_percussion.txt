@@ -1,0 +1,47 @@
+# Percussion edge cases (run in --full). Cowbell = midi 56, v80 default = 102.
+call: music_parser.percussion_instrument_map
+arg name = "cowbell"
+arg bank = 0
+arg program = 0
+arg drum_note = 56
+save as: drums
+
+# A `.` rest after a hit advances time without an event: `z...z` is hit, rest(3), hit.
+call: music_parser.event_grid
+arg text = "CowBell 8/8 z...z"
+arg instruments = $drums
+expect return =
+    0.0 0.5 56 102
+    2.0 0.5 56 102
+
+# A dash binds to the preceding hit; a dot is a separate rest: `z-.z` in 8/8 is
+#   z-  hit @0.0 dur1.0 ;  .  rest 1 inc ;  z  hit @1.5 dur0.5
+call: music_parser.event_grid
+arg text = "CowBell 8/8 z-.z"
+arg instruments = $drums
+expect return =
+    0.0 1.0 56 102
+    1.5 0.5 56 102
+
+# A velocity token applies to subsequent hits: v50 = round(50*127/100) = 64.
+call: music_parser.event_grid
+arg text = "CowBell 8/8 v50 z"
+arg instruments = $drums
+expect return =
+    0.0 0.5 56 64
+
+# Default 4/4 percussion: each z is one quarter-beat increment.
+call: music_parser.event_grid
+arg text = "CowBell z z"
+arg instruments = $drums
+expect return =
+    0.0 1.0 56 102
+    1.0 1.0 56 102
+
+# A colon-less name that is NOT a designed percussion instrument is an error
+# (a melodic instrument needs an anchor like piano:c4). The line produces no
+# events, so the section has zero beats. This also guards the regression where
+# a colon-less first token used to crash the instrument-line splitter.
+call: music_parser.section_beat_count
+arg text = "piano z z"
+expect return = 0.0
