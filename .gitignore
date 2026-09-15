@@ -1,0 +1,10 @@
+# ── Machine-specific / regenerable ──────────────────────────────────────────
+venv
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Runtime output ───────────────────────────────────────────────────────────
+tmp/
+node_modules/
+.DS_Store

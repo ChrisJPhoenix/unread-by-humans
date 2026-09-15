@@ -1,0 +1,9 @@
+flask==3.1.3
+numpy==2.4.6
+markupsafe==3.0.3
+
+# Optional — the real-audio path only (see design/music-web.md).
+# pyfluidsynth and soundfile are lazy imports reached only by
+# FluidSynthBackend and encode_flac. The test suite is green without them.
+# pyfluidsynth==1.4.0
+# soundfile==0.14.0
